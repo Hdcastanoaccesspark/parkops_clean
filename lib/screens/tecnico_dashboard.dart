@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import '../config.dart';
+import 'menu_parqueadero.dart';
 
 class TecnicoDashboard extends StatefulWidget {
   const TecnicoDashboard({super.key});
@@ -23,6 +24,7 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
   bool _cargandoParqueaderos = true;
   String _vistaActual = 'ninguna';
   String? _parqueaderoLaborActivo;
+  String? _errorParqueaderos;
 
   @override
   void initState() {
@@ -56,9 +58,11 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
         });
       } else {
         setState(() => _cargandoPerfil = false);
+        _mostrarError('Error al cargar perfil');
       }
     } catch (e) {
       setState(() => _cargandoPerfil = false);
+      _mostrarError('Conexión fallida');
     }
   }
 
@@ -66,6 +70,7 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
     setState(() => _cargandoVisitas = true);
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
+    if (token == null) return;
     try {
       final response = await http.get(
         Uri.parse('$API_BASE_URL/api/solicitudes'),
@@ -82,32 +87,62 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
         });
       } else {
         setState(() => _cargandoVisitas = false);
+        _mostrarError('Error al cargar visitas');
       }
     } catch (e) {
       setState(() => _cargandoVisitas = false);
+      _mostrarError('Error de red');
     }
   }
 
   Future<void> _cargarParqueaderos() async {
-    setState(() => _cargandoParqueaderos = true);
+    setState(() {
+      _cargandoParqueaderos = true;
+      _errorParqueaderos = null;
+    });
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
+    if (token == null) return;
     try {
       final response = await http.get(
         Uri.parse('$API_BASE_URL/parqueaderos'),
         headers: {'Authorization': 'Bearer $token'},
       );
       if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
         setState(() {
-          _parqueaderos = jsonDecode(response.body);
+          _parqueaderos = data;
           _cargandoParqueaderos = false;
         });
       } else {
-        setState(() => _cargandoParqueaderos = false);
+        setState(() {
+          _cargandoParqueaderos = false;
+          _errorParqueaderos = 'Error del servidor (${response.statusCode})';
+        });
       }
     } catch (e) {
-      setState(() => _cargandoParqueaderos = false);
+      setState(() {
+        _cargandoParqueaderos = false;
+        _errorParqueaderos = 'Error de conexión: $e';
+      });
     }
+  }
+
+  void _mostrarError(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+  }
+
+  void _mostrarMensaje(String msg, {bool isError = true}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: isError ? Colors.red : Colors.green,
+      ),
+    );
   }
 
   Future<void> _aceptarSolicitud(int id) async {
@@ -145,7 +180,9 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
         ],
       ),
     );
-    if (confirm == true) await _iniciarJornada();
+    if (confirm == true) {
+      await _iniciarJornada();
+    }
   }
 
   Future<void> _iniciarJornada() async {
@@ -226,20 +263,9 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
     } catch (_) {}
   }
 
-  void _mostrarMensaje(String msg, {bool isError = true}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? Colors.red : Colors.green,
-      ),
-    );
-  }
-
   Future<void> _iniciarLaborEnParqueadero(
     Map<String, dynamic> parqueadero,
   ) async {
-    // Validar si ya hay una labor activa en otro parqueadero
     if (_parqueaderoLaborActivo != null &&
         _parqueaderoLaborActivo != parqueadero['id'].toString()) {
       final cambiar = await showDialog<bool>(
@@ -294,7 +320,13 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
       'Labor iniciada en ${parqueadero['nombre']}',
       isError: false,
     );
-    // Aquí en el Paso 2 iremos a la pantalla de menú.
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MenuParqueaderoScreen(parqueadero: parqueadero),
+      ),
+    );
+    _mostrarMensaje('Regresaste al dashboard', isError: false);
   }
 
   Future<void> _seleccionarParqueadero(Map<String, dynamic> parqueadero) async {
@@ -320,7 +352,9 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
       );
       if (iniciar == true) {
         await _iniciarJornadaConConfirmacion();
-        if (_jornadaActiva) await _iniciarLaborEnParqueadero(parqueadero);
+        if (_jornadaActiva) {
+          await _iniciarLaborEnParqueadero(parqueadero);
+        }
       }
       return;
     }
@@ -351,13 +385,11 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
       if (iniciar == true) {
         await _iniciarJornadaConConfirmacion();
         if (_jornadaActiva) {
-          // TODO: implementar atención a visita asignada (Paso 2)
           _mostrarMensaje('Próximamente: atender visita asignada');
         }
       }
       return;
     }
-    // TODO: implementar atención a visita asignada (Paso 2)
     _mostrarMensaje('Próximamente: atender visita asignada');
   }
 
@@ -499,9 +531,25 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
                       : _vistaActual == 'parqueaderos'
                       ? _cargandoParqueaderos
                             ? const Center(child: CircularProgressIndicator())
+                            : _errorParqueaderos != null
+                            ? Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text('Error: $_errorParqueaderos'),
+                                    const SizedBox(height: 16),
+                                    ElevatedButton(
+                                      onPressed: _cargarParqueaderos,
+                                      child: const Text('Reintentar'),
+                                    ),
+                                  ],
+                                ),
+                              )
                             : _parqueaderos.isEmpty
                             ? const Center(
-                                child: Text('No hay parqueaderos disponibles.'),
+                                child: Text(
+                                  'No hay parqueaderos disponibles. Ejecuta el endpoint de inserción de datos.',
+                                ),
                               )
                             : ListView.builder(
                                 itemCount: _parqueaderos.length,
