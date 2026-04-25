@@ -96,8 +96,8 @@ class ClienteDashboardState extends State<ClienteDashboard> {
             _cargarSolicitudes();
           }
         },
-        child: const Icon(Icons.add),
         backgroundColor: const Color(0xFFE30613),
+        child: const Icon(Icons.add),
       ),
     );
   }
