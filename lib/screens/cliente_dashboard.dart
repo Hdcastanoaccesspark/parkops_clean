@@ -75,57 +75,12 @@ class ClienteDashboardState extends State<ClienteDashboard> {
     }
   }
 
-<<<<<<< HEAD
   void _msg(String m, {bool err = true}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(m),
         backgroundColor: err ? Colors.red : Colors.green,
-=======
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('ParkOps - Cliente'),
-        backgroundColor: const Color(0xFF004A99),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _solicitudes.isEmpty
-          ? const Center(
-              child: Text(
-                'No tienes solicitudes aún.\nPresiona el botón + para crear una.',
-              ),
-            )
-          : ListView.builder(
-              itemCount: _solicitudes.length,
-              itemBuilder: (ctx, i) => Card(
-                margin: const EdgeInsets.all(8),
-                child: ListTile(
-                  title: Text(_solicitudes[i]['tipo']),
-                  subtitle: Text(
-                    'Estado: ${_solicitudes[i]['estado']}\nDescripción: ${_solicitudes[i]['descripcion']}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  isThreeLine: true,
-                ),
-              ),
-            ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const NuevaSolicitudScreen()),
-          );
-          if (result == true) {
-            _cargarSolicitudes();
-          }
-        },
-        backgroundColor: const Color(0xFFE30613),
-        child: const Icon(Icons.add),
->>>>>>> 87c9e377cbddd5aaecf28316bf7ae36913ef9d2f
       ),
     );
   }
