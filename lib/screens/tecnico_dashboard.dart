@@ -8,91 +8,160 @@ import 'menu_parqueadero.dart';
 
 class TecnicoDashboard extends StatefulWidget {
   const TecnicoDashboard({super.key});
-
   @override
-  TecnicoDashboardState createState() => TecnicoDashboardState();
+  State<TecnicoDashboard> createState() => _TecnicoDashboardState();
 }
 
-class TecnicoDashboardState extends State<TecnicoDashboard> {
-  bool _jornadaActiva = false;
-  bool _jornadaPausada = false;
-  Map<String, dynamic>? _perfil;
-  bool _cargandoPerfil = true;
-  List<dynamic> _visitasAsignadas = [];
-  bool _cargandoVisitas = true;
-  List<dynamic> _parqueaderos = [];
-  bool _cargandoParqueaderos = true;
-  String _vistaActual = 'ninguna';
-  String? _parqueaderoLaborActivo;
-  String? _errorParqueaderos;
+class _TecnicoDashboardState extends State<TecnicoDashboard> {
+  bool _jornadaActiva = false,
+      _jornadaPausada = false,
+      _cargandoJornada = false;
+  List<dynamic> _parqueaderos = [], _visitasAsignadas = [];
+  bool _cargandoParqueaderos = true, _cargandoVisitas = true;
+  String? _errorParqueaderos, _errorVisitas;
+  String? _parqueaderoLaborNombre;
+  bool _laborPausada = false;
+  String _vistaActual = 'parqueaderos';
 
   @override
   void initState() {
     super.initState();
-    _cargarDatosIniciales();
+    _cargarParqueaderos();
+    _cargarVisitasAsignadas();
+    _consultarEstadoJornada();
   }
 
-  Future<void> _cargarDatosIniciales() async {
-    await Future.wait([
-      _cargarPerfil(),
-      _consultarEstadoJornada(),
-      _cargarVisitasAsignadas(),
-      _cargarParqueaderos(),
-    ]);
+  Future<bool> _confirmar(String titulo, String mensaje) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(titulo),
+        content: Text(mensaje),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
   }
 
-  Future<void> _cargarPerfil() async {
+  Future<void> _logout() async {
+    final confirm = await _confirmar(
+      'Cerrar sesión',
+      '¿Está seguro de que desea cerrar sesión?',
+    );
+    if (!confirm) return;
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
-    final userId = prefs.getInt('userId');
-    if (token == null || userId == null) return;
-    try {
-      final response = await http.get(
-        Uri.parse('$API_BASE_URL/usuarios/$userId'),
-        headers: {'Authorization': 'Bearer $token'},
-      );
-      if (response.statusCode == 200) {
-        setState(() {
-          _perfil = jsonDecode(response.body);
-          _cargandoPerfil = false;
-        });
-      } else {
-        setState(() => _cargandoPerfil = false);
-        _mostrarError('Error al cargar perfil');
-      }
-    } catch (e) {
-      setState(() => _cargandoPerfil = false);
-      _mostrarError('Conexión fallida');
-    }
+    await prefs.clear();
+    if (mounted) Navigator.pushReplacementNamed(context, '/login');
   }
 
-  Future<void> _cargarVisitasAsignadas() async {
-    setState(() => _cargandoVisitas = true);
+  Future<void> _consultarEstadoJornada() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
     if (token == null) return;
     try {
-      final response = await http.get(
-        Uri.parse('$API_BASE_URL/api/solicitudes'),
+      final res = await http.get(
+        Uri.parse('$API_BASE_URL/tecnico/jornada_activa'),
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (response.statusCode == 200) {
-        final todas = jsonDecode(response.body) as List;
-        final asignadas = todas
-            .where((s) => s['estado'] == 'asignada')
-            .toList();
-        setState(() {
-          _visitasAsignadas = asignadas;
-          _cargandoVisitas = false;
-        });
-      } else {
-        setState(() => _cargandoVisitas = false);
-        _mostrarError('Error al cargar visitas');
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (mounted) setState(() => _jornadaActiva = data['activa'] == true);
       }
+    } catch (_) {}
+  }
+
+  Future<void> _iniciarJornada() async {
+    if (!await _confirmar(
+      'Iniciar jornada',
+      '¿Está seguro de que desea iniciar la jornada laboral?',
+    ))
+      return;
+    setState(() => _cargandoJornada = true);
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      final res = await http.post(
+        Uri.parse('$API_BASE_URL/tecnico/iniciar_jornada'),
+        headers: {'Authorization': 'Bearer $token'},
+        body: {'lat': pos.latitude.toString(), 'lon': pos.longitude.toString()},
+      );
+      if (res.statusCode == 200) {
+        setState(() => _jornadaActiva = true);
+        _msg('Jornada iniciada');
+      } else
+        _msg('Error al iniciar jornada: ${res.statusCode}');
     } catch (e) {
-      setState(() => _cargandoVisitas = false);
-      _mostrarError('Error de red');
+      _msg('Error GPS: $e');
+    } finally {
+      if (mounted) setState(() => _cargandoJornada = false);
     }
+  }
+
+  Future<void> _finalizarJornada() async {
+    if (!await _confirmar(
+      'Finalizar jornada',
+      '¿Está seguro de que desea finalizar la jornada laboral?',
+    ))
+      return;
+    setState(() => _cargandoJornada = true);
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      final res = await http.post(
+        Uri.parse('$API_BASE_URL/tecnico/finalizar_jornada'),
+        headers: {'Authorization': 'Bearer $token'},
+        body: {'lat': pos.latitude.toString(), 'lon': pos.longitude.toString()},
+      );
+      if (res.statusCode == 200) {
+        setState(() {
+          _jornadaActiva = false;
+          _jornadaPausada = false;
+          _parqueaderoLaborNombre = null;
+          _laborPausada = false;
+        });
+        _msg('Jornada finalizada');
+      } else
+        _msg('Error al finalizar jornada: ${res.statusCode}');
+    } catch (e) {
+      _msg('Error GPS: $e');
+    } finally {
+      if (mounted) setState(() => _cargandoJornada = false);
+    }
+  }
+
+  Future<void> _pausarJornada() async {
+    if (!await _confirmar('Pausar jornada', '¿Desea pausar la jornada?'))
+      return;
+    setState(() {
+      _jornadaPausada = true;
+      if (_parqueaderoLaborNombre != null) _laborPausada = true;
+    });
+    _msg('Jornada pausada', err: false);
+  }
+
+  Future<void> _reanudarJornada() async {
+    if (!await _confirmar('Reanudar jornada', '¿Desea reanudar la jornada?'))
+      return;
+    setState(() {
+      _jornadaPausada = false;
+      if (_parqueaderoLaborNombre != null) _laborPausada = false;
+    });
+    _msg('Jornada reanudada', err: false);
   }
 
   Future<void> _cargarParqueaderos() async {
@@ -102,474 +171,329 @@ class TecnicoDashboardState extends State<TecnicoDashboard> {
     });
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
-    if (token == null) return;
+    if (token == null) {
+      setState(() {
+        _cargandoParqueaderos = false;
+        _errorParqueaderos = 'Sin token';
+      });
+      return;
+    }
     try {
-      final response = await http.get(
+      final res = await http.get(
         Uri.parse('$API_BASE_URL/parqueaderos'),
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      if (res.statusCode == 200)
         setState(() {
-          _parqueaderos = data;
+          _parqueaderos = jsonDecode(res.body);
           _cargandoParqueaderos = false;
         });
-      } else {
+      else
         setState(() {
           _cargandoParqueaderos = false;
-          _errorParqueaderos = 'Error del servidor (${response.statusCode})';
+          _errorParqueaderos = 'HTTP ${res.statusCode}';
         });
-      }
     } catch (e) {
       setState(() {
         _cargandoParqueaderos = false;
-        _errorParqueaderos = 'Error de conexión: $e';
+        _errorParqueaderos = 'Error de conexión';
       });
     }
   }
 
-  void _mostrarError(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
-  }
-
-  void _mostrarMensaje(String msg, {bool isError = true}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? Colors.red : Colors.green,
-      ),
-    );
+  Future<void> _cargarVisitasAsignadas() async {
+    setState(() {
+      _cargandoVisitas = true;
+      _errorVisitas = null;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token == null) {
+      setState(() {
+        _cargandoVisitas = false;
+        _errorVisitas = 'Sin token';
+      });
+      return;
+    }
+    try {
+      final res = await http.get(
+        Uri.parse('$API_BASE_URL/api/solicitudes'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        final todas = jsonDecode(res.body) as List;
+        setState(() {
+          _visitasAsignadas = todas
+              .where(
+                (s) => s['estado'] == 'asignada' || s['estado'] == 'pendiente',
+              )
+              .toList();
+          _cargandoVisitas = false;
+        });
+      } else
+        setState(() {
+          _cargandoVisitas = false;
+          _errorVisitas = 'HTTP ${res.statusCode}';
+        });
+    } catch (e) {
+      setState(() {
+        _cargandoVisitas = false;
+        _errorVisitas = 'Error de conexión';
+      });
+    }
   }
 
   Future<void> _aceptarSolicitud(int id) async {
+    if (!_jornadaActiva) {
+      _msg('Debes iniciar jornada');
+      return;
+    }
+    if (_jornadaPausada) {
+      _msg('Jornada pausada. Reanuda primero.');
+      return;
+    }
+    if (!await _confirmar(
+      'Aceptar solicitud',
+      '¿Confirma que desea aceptar esta visita?',
+    ))
+      return;
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
-    final response = await http.post(
+    final res = await http.post(
       Uri.parse('$API_BASE_URL/tecnico/aceptar/$id'),
       headers: {'Authorization': 'Bearer $token'},
     );
-    if (response.statusCode == 200) {
+    if (res.statusCode == 200) {
       _cargarVisitasAsignadas();
-      _mostrarMensaje('Solicitud aceptada');
-    } else {
-      _mostrarMensaje('Error al aceptar');
-    }
+      _msg('Solicitud aceptada', err: false);
+    } else
+      _msg('Error al aceptar: ${res.statusCode}');
   }
 
-  Future<void> _iniciarJornadaConConfirmacion() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Iniciar jornada'),
-        content: const Text(
-          '¿Estás seguro de que deseas iniciar la jornada laboral?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Sí, iniciar'),
-          ),
-        ],
-      ),
-    );
-    if (confirm == true) {
-      await _iniciarJornada();
+  Future<void> _entrarAParqueadero(Map<String, dynamic> p) async {
+    if (!_jornadaActiva) {
+      _msg('Debes iniciar jornada primero');
+      return;
     }
-  }
-
-  Future<void> _iniciarJornada() async {
+    if (_jornadaPausada) {
+      _msg('Jornada pausada');
+      return;
+    }
+    if (!await _confirmar(
+      'Iniciar labor',
+      '¿Desea iniciar labor en ${p['nombre']}?',
+    ))
+      return;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      final position = await Geolocator.getCurrentPosition();
-      final response = await http.post(
-        Uri.parse('$API_BASE_URL/tecnico/iniciar_jornada'),
-        headers: {'Authorization': 'Bearer $token'},
-        body: {
-          'lat': position.latitude.toString(),
-          'lon': position.longitude.toString(),
-        },
-      );
-      if (response.statusCode == 200) {
-        if (mounted) setState(() => _jornadaActiva = true);
-        _mostrarMensaje('Jornada iniciada');
-      } else {
-        _mostrarMensaje('Error al iniciar jornada');
-      }
-    } catch (e) {
-      _mostrarMensaje('Error: $e');
-    }
-  }
-
-  Future<void> _pausarJornada() async {
-    if (mounted) setState(() => _jornadaPausada = true);
-    _mostrarMensaje('Jornada pausada');
-  }
-
-  Future<void> _reanudarJornada() async {
-    if (mounted) setState(() => _jornadaPausada = false);
-    _mostrarMensaje('Jornada reanudada');
-  }
-
-  Future<void> _finalizarJornada() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      final position = await Geolocator.getCurrentPosition();
-      final response = await http.post(
-        Uri.parse('$API_BASE_URL/tecnico/finalizar_jornada'),
-        headers: {'Authorization': 'Bearer $token'},
-        body: {
-          'lat': position.latitude.toString(),
-          'lon': position.longitude.toString(),
-        },
-      );
-      if (response.statusCode == 200) {
-        if (mounted)
-          setState(() {
-            _jornadaActiva = false;
-            _jornadaPausada = false;
-          });
-        _mostrarMensaje('Jornada finalizada');
-      } else {
-        _mostrarMensaje('Error al finalizar jornada');
-      }
-    } catch (e) {
-      _mostrarMensaje('Error: $e');
-    }
-  }
-
-  Future<void> _consultarEstadoJornada() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
-    if (token == null) return;
-    try {
-      final response = await http.get(
-        Uri.parse('$API_BASE_URL/tecnico/jornada_activa'),
-        headers: {'Authorization': 'Bearer $token'},
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (mounted) setState(() => _jornadaActiva = data['activa']);
-      }
+      await Geolocator.getCurrentPosition();
     } catch (_) {}
-  }
-
-  Future<void> _iniciarLaborEnParqueadero(
-    Map<String, dynamic> parqueadero,
-  ) async {
-    if (_parqueaderoLaborActivo != null &&
-        _parqueaderoLaborActivo != parqueadero['id'].toString()) {
-      final cambiar = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Cambiar de parqueadero'),
-          content: Text(
-            'Ya tienes una labor activa en otro parqueadero. ¿Deseas pausarla y cambiar a ${parqueadero['nombre']}?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('No'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Sí, cambiar'),
-            ),
-          ],
-        ),
-      );
-      if (cambiar != true) return;
-      setState(() {
-        _parqueaderoLaborActivo = null;
-      });
-      _mostrarMensaje('Labor anterior pausada', isError: false);
-    }
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Iniciar labor en ${parqueadero['nombre']}'),
-        content: const Text('¿Estás seguro de que deseas iniciar esta labor?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Iniciar'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
-
     setState(() {
-      _parqueaderoLaborActivo = parqueadero['id'].toString();
+      _parqueaderoLaborNombre = p['nombre'];
+      _laborPausada = false;
     });
-    _mostrarMensaje(
-      'Labor iniciada en ${parqueadero['nombre']}',
-      isError: false,
-    );
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => MenuParqueaderoScreen(parqueadero: parqueadero),
+      MaterialPageRoute(builder: (_) => MenuParqueaderoScreen(parqueadero: p)),
+    );
+    setState(() {
+      _parqueaderoLaborNombre = null;
+      _laborPausada = false;
+    });
+    _cargarParqueaderos();
+  }
+
+  void _msg(String m, {bool err = true}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(m),
+        backgroundColor: err ? Colors.red : Colors.green,
       ),
     );
-    _mostrarMensaje('Regresaste al dashboard', isError: false);
-  }
-
-  Future<void> _seleccionarParqueadero(Map<String, dynamic> parqueadero) async {
-    if (!_jornadaActiva) {
-      final iniciar = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Jornada inactiva'),
-          content: const Text(
-            'Debes iniciar la jornada antes de poder trabajar en un parqueadero. ¿Deseas iniciarla ahora?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Iniciar jornada'),
-            ),
-          ],
-        ),
-      );
-      if (iniciar == true) {
-        await _iniciarJornadaConConfirmacion();
-        if (_jornadaActiva) {
-          await _iniciarLaborEnParqueadero(parqueadero);
-        }
-      }
-      return;
-    }
-    await _iniciarLaborEnParqueadero(parqueadero);
-  }
-
-  Future<void> _atenderVisitaAsignada(Map<String, dynamic> solicitud) async {
-    if (!_jornadaActiva) {
-      final iniciar = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Jornada inactiva'),
-          content: const Text(
-            'Debes iniciar la jornada antes de atender una visita asignada. ¿Deseas iniciarla ahora?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Iniciar jornada'),
-            ),
-          ],
-        ),
-      );
-      if (iniciar == true) {
-        await _iniciarJornadaConConfirmacion();
-        if (_jornadaActiva) {
-          _mostrarMensaje('Próximamente: atender visita asignada');
-        }
-      }
-      return;
-    }
-    _mostrarMensaje('Próximamente: atender visita asignada');
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('ParkOps - Técnico'),
-        backgroundColor: const Color(0xFF004A99),
-        actions: [
-          if (!_jornadaActiva)
-            IconButton(
-              icon: const Icon(Icons.play_arrow, color: Colors.white),
-              onPressed: _iniciarJornadaConConfirmacion,
-              tooltip: 'Iniciar jornada',
-            ),
-          if (_jornadaActiva && !_jornadaPausada)
-            IconButton(
-              icon: const Icon(Icons.pause, color: Colors.white),
-              onPressed: _pausarJornada,
-              tooltip: 'Pausar jornada',
-            ),
-          if (_jornadaActiva && _jornadaPausada)
-            IconButton(
-              icon: const Icon(Icons.play_arrow, color: Colors.white),
-              onPressed: _reanudarJornada,
-              tooltip: 'Reanudar jornada',
-            ),
-          if (_jornadaActiva)
-            IconButton(
-              icon: const Icon(Icons.stop, color: Colors.white),
-              onPressed: _finalizarJornada,
-              tooltip: 'Finalizar jornada',
-            ),
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Row(
+        children: [
+          Image.network('https://i.imgur.com/dpfS4Xw.png', height: 40),
+          const SizedBox(width: 8),
+          const Text('ParkOps - Técnico'),
         ],
       ),
-      body: _cargandoPerfil
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      backgroundColor: const Color(0xFF004A99),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.logout, color: Colors.white),
+          onPressed: _logout,
+          tooltip: 'Cerrar sesión',
+        ),
+        if (!_jornadaActiva)
+          IconButton(
+            icon: const Icon(Icons.play_arrow, color: Colors.white),
+            onPressed: _cargandoJornada ? null : _iniciarJornada,
+            tooltip: 'Iniciar jornada',
+          ),
+        if (_jornadaActiva && !_jornadaPausada)
+          IconButton(
+            icon: const Icon(Icons.pause, color: Colors.white),
+            onPressed: _pausarJornada,
+            tooltip: 'Pausar jornada',
+          ),
+        if (_jornadaActiva && _jornadaPausada)
+          IconButton(
+            icon: const Icon(Icons.play_arrow, color: Colors.white),
+            onPressed: _reanudarJornada,
+            tooltip: 'Reanudar jornada',
+          ),
+        if (_jornadaActiva)
+          IconButton(
+            icon: const Icon(Icons.stop, color: Colors.white),
+            onPressed: _cargandoJornada ? null : _finalizarJornada,
+            tooltip: 'Finalizar jornada',
+          ),
+      ],
+    ),
+    body: Column(
+      children: [
+        if (_parqueaderoLaborNombre != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            color: _laborPausada ? Colors.yellow[700] : Colors.green,
+            child: Row(
               children: [
-                Card(
-                  margin: const EdgeInsets.all(8),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Técnico: ${_perfil?['nombre'] ?? 'Cargando...'}',
-                          style: const TextStyle(fontSize: 18),
-                        ),
-                        Text('Email: ${_perfil?['email'] ?? ''}'),
-                        Text('Rol: ${_perfil?['rol'] ?? ''}'),
-                      ],
+                Icon(
+                  _laborPausada ? Icons.pause_circle : Icons.location_on,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _laborPausada
+                        ? 'Labor pausada en $_parqueaderoLaborNombre'
+                        : 'Trabajando en $_parqueaderoLaborNombre',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
+              ],
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => setState(() => _vistaActual = 'asignadas'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _vistaActual == 'asignadas'
+                        ? const Color(0xFFE30613)
+                        : Colors.grey,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(0, 40),
                   ),
-                  child: Row(
+                  child: const Text('Visitas Asignadas'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () =>
+                      setState(() => _vistaActual = 'parqueaderos'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _vistaActual == 'parqueaderos'
+                        ? const Color(0xFFE30613)
+                        : Colors.grey,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(0, 40),
+                  ),
+                  child: const Text('Parqueaderos'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _vistaActual == 'asignadas'
+              ? _cargandoVisitas
+                    ? const Center(child: CircularProgressIndicator())
+                    : _errorVisitas != null
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('Error: $_errorVisitas'),
+                            const SizedBox(height: 8),
+                            ElevatedButton(
+                              onPressed: _cargarVisitasAsignadas,
+                              child: const Text('Reintentar'),
+                            ),
+                          ],
+                        ),
+                      )
+                    : _visitasAsignadas.isEmpty
+                    ? const Center(child: Text('No hay visitas asignadas.'))
+                    : ListView.builder(
+                        itemCount: _visitasAsignadas.length,
+                        itemBuilder: (_, i) => Card(
+                          margin: const EdgeInsets.all(8),
+                          child: ListTile(
+                            title: Text(
+                              'Cliente: ${_visitasAsignadas[i]['cliente_nombre'] ?? 'N/D'}',
+                            ),
+                            subtitle: Text(
+                              'Tipo: ${_visitasAsignadas[i]['tipo']}\n${_visitasAsignadas[i]['descripcion']}',
+                            ),
+                            trailing: ElevatedButton(
+                              onPressed: (!_jornadaActiva || _jornadaPausada)
+                                  ? null
+                                  : () => _aceptarSolicitud(
+                                      _visitasAsignadas[i]['id'],
+                                    ),
+                              child: const Text('Aceptar'),
+                            ),
+                          ),
+                        ),
+                      )
+              : _cargandoParqueaderos
+              ? const Center(child: CircularProgressIndicator())
+              : _errorParqueaderos != null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () =>
-                              setState(() => _vistaActual = 'asignadas'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _vistaActual == 'asignadas'
-                                ? const Color(0xFFE30613)
-                                : Colors.grey,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: const Text('Visitas Asignadas'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () =>
-                              setState(() => _vistaActual = 'parqueaderos'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _vistaActual == 'parqueaderos'
-                                ? const Color(0xFFE30613)
-                                : Colors.grey,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: const Text('Parqueaderos'),
-                        ),
+                      Text('Error: $_errorParqueaderos'),
+                      const SizedBox(height: 8),
+                      ElevatedButton(
+                        onPressed: _cargarParqueaderos,
+                        child: const Text('Reintentar'),
                       ),
                     ],
                   ),
+                )
+              : _parqueaderos.isEmpty
+              ? const Center(child: Text('No hay parqueaderos disponibles.'))
+              : ListView.builder(
+                  itemCount: _parqueaderos.length,
+                  itemBuilder: (_, i) => Card(
+                    margin: const EdgeInsets.all(8),
+                    child: ListTile(
+                      title: Text(_parqueaderos[i]['nombre']),
+                      subtitle: Text(_parqueaderos[i]['direccion']),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: (!_jornadaActiva || _jornadaPausada)
+                          ? null
+                          : () => _entrarAParqueadero(_parqueaderos[i]),
+                    ),
+                  ),
                 ),
-                Expanded(
-                  child: _vistaActual == 'asignadas'
-                      ? _cargandoVisitas
-                            ? const Center(child: CircularProgressIndicator())
-                            : _visitasAsignadas.isEmpty
-                            ? const Center(
-                                child: Text('No hay visitas asignadas.'),
-                              )
-                            : ListView.builder(
-                                itemCount: _visitasAsignadas.length,
-                                itemBuilder: (ctx, i) {
-                                  final s = _visitasAsignadas[i];
-                                  return Card(
-                                    margin: const EdgeInsets.all(8),
-                                    child: ListTile(
-                                      title: Text(
-                                        'Cliente: ${s['cliente_nombre'] ?? 'N/D'}',
-                                      ),
-                                      subtitle: Text(
-                                        'Tipo: ${s['tipo']}\nDescripción: ${s['descripcion']}',
-                                      ),
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          ElevatedButton(
-                                            onPressed: () =>
-                                                _aceptarSolicitud(s['id']),
-                                            child: const Text('Aceptar'),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          ElevatedButton(
-                                            onPressed: () =>
-                                                _atenderVisitaAsignada(s),
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: Colors.green,
-                                            ),
-                                            child: const Text('Atender'),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                              )
-                      : _vistaActual == 'parqueaderos'
-                      ? _cargandoParqueaderos
-                            ? const Center(child: CircularProgressIndicator())
-                            : _errorParqueaderos != null
-                            ? Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text('Error: $_errorParqueaderos'),
-                                    const SizedBox(height: 16),
-                                    ElevatedButton(
-                                      onPressed: _cargarParqueaderos,
-                                      child: const Text('Reintentar'),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : _parqueaderos.isEmpty
-                            ? const Center(
-                                child: Text(
-                                  'No hay parqueaderos disponibles. Ejecuta el endpoint de inserción de datos.',
-                                ),
-                              )
-                            : ListView.builder(
-                                itemCount: _parqueaderos.length,
-                                itemBuilder: (ctx, i) {
-                                  final p = _parqueaderos[i];
-                                  return Card(
-                                    margin: const EdgeInsets.all(8),
-                                    child: ListTile(
-                                      title: Text(p['nombre']),
-                                      subtitle: Text(p['direccion']),
-                                      trailing: const Icon(Icons.chevron_right),
-                                      onTap: () => _seleccionarParqueadero(p),
-                                    ),
-                                  );
-                                },
-                              )
-                      : const Center(child: Text('Selecciona una opción')),
-                ),
-              ],
-            ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
 }

@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:signature/signature.dart';
 import '../config.dart';
 import 'correctivo_presencial_screen.dart';
+import 'correctivo_remoto_screen.dart';
 import 'preventivo_screen.dart';
 import 'qr_scanner_screen.dart';
 
 class MenuParqueaderoScreen extends StatefulWidget {
   final Map<String, dynamic> parqueadero;
   const MenuParqueaderoScreen({super.key, required this.parqueadero});
-
   @override
   State<MenuParqueaderoScreen> createState() => _MenuParqueaderoScreenState();
 }
@@ -29,41 +30,38 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
     try {
-      final response = await http.get(
+      final res = await http.get(
         Uri.parse(
           '$API_BASE_URL/parqueaderos/${widget.parqueadero['id']}/maquinas',
         ),
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (response.statusCode == 200) {
+      if (res.statusCode == 200)
         setState(() {
-          _maquinas = jsonDecode(response.body);
+          _maquinas = jsonDecode(res.body);
           _cargando = false;
         });
-      } else {
+      else
         setState(() => _cargando = false);
-      }
     } catch (e) {
       setState(() => _cargando = false);
     }
   }
 
-  void _mostrarMensaje(String msg, {bool isError = true}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? Colors.red : Colors.green,
-      ),
-    );
-  }
+  void _msg(String m, {bool err = true}) =>
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(m),
+          backgroundColor: err ? Colors.red : Colors.green,
+        ),
+      );
 
   Future<void> _correctivo() async {
-    // Preguntar remoto o presencial
     final tipo = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Tipo de mantenimiento correctivo'),
-        content: const Text('¿Es remoto o presencial?'),
+        title: const Text('Tipo'),
+        content: const Text('¿Remoto o presencial?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, 'remoto'),
@@ -77,22 +75,24 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
       ),
     );
     if (tipo == null) return;
-
     if (tipo == 'remoto') {
-      // Lógica remoto (por ahora solo mensaje)
-      _mostrarMensaje('Mantenimiento remoto (próximamente)', isError: false);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              CorrectivoRemotoScreen(parqueadero: widget.parqueadero),
+        ),
+      );
       return;
     }
-
-    // Presencial: mostrar máquinas para seleccionar
     if (_maquinas.isEmpty) {
-      _mostrarMensaje('No hay máquinas en este parqueadero');
+      _msg('No hay máquinas');
       return;
     }
-    final maquina = await showDialog<Map<String, dynamic>>(
+    final maq = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Selecciona la máquina'),
+        title: const Text('Selecciona máquina'),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.builder(
@@ -106,185 +106,214 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
         ),
       ),
     );
-    if (maquina == null) return;
-
-    // Navegar a pantalla de correctivo presencial
-    final result = await Navigator.push(
+    if (maq == null) return;
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => CorrectivoPresencialScreen(
           parqueadero: widget.parqueadero,
-          maquina: maquina,
+          maquina: maq,
         ),
       ),
     );
-    if (result == true) {
-      _mostrarMensaje('Reporte enviado', isError: false);
-    }
   }
 
   Future<void> _preventivo() async {
-    // Mostrar checklist de máquinas (similar a selección)
     if (_maquinas.isEmpty) {
-      _mostrarMensaje('No hay máquinas en este parqueadero');
+      _msg('No hay máquinas');
       return;
     }
-    final maquinasSeleccionadas = <Map<String, dynamic>>[];
-    // Diálogo multi-selección con checkboxes
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setStateDialog) => AlertDialog(
-          title: const Text(
-            'Selecciona las máquinas para mantenimiento preventivo',
-          ),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: 300,
-            child: ListView.builder(
-              itemCount: _maquinas.length,
-              itemBuilder: (_, i) {
-                final m = _maquinas[i];
-                final seleccionada = maquinasSeleccionadas.contains(m);
-                return CheckboxListTile(
-                  title: Text(m['nombre']),
-                  value: seleccionada,
-                  onChanged: (val) {
-                    setStateDialog(() {
-                      if (val == true) {
-                        maquinasSeleccionadas.add(m);
-                      } else {
-                        maquinasSeleccionadas.remove(m);
-                      }
-                    });
-                  },
-                );
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (maquinasSeleccionadas.isEmpty) {
-                  _mostrarMensaje('Selecciona al menos una máquina');
-                  return;
-                }
-                Navigator.pop(ctx);
-                // Navegar a pantalla de preventivo con la lista
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PreventivoScreen(
-                      parqueadero: widget.parqueadero,
-                      maquinas: maquinasSeleccionadas,
-                    ),
-                  ),
-                );
-              },
-              child: const Text('Continuar'),
-            ),
-          ],
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PreventivoScreen(
+          parqueadero: widget.parqueadero,
+          maquinas: List<Map<String, dynamic>>.from(_maquinas),
         ),
       ),
     );
   }
 
   Future<void> _leerQR() async {
-    final result = await Navigator.push(
+    final code = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const QrScannerScreen()),
     );
-    if (result != null) {
-      // Buscar máquina por código QR
+    if (code != null) {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
-      try {
-        final response = await http.get(
-          Uri.parse('$API_BASE_URL/maquinas/qr/$result'),
-          headers: {'Authorization': 'Bearer $token'},
-        );
-        if (response.statusCode == 200) {
-          final maquina = jsonDecode(response.body);
-          // Verificar que pertenezca al parqueadero actual
-          if (maquina['parqueadero_id'] != widget.parqueadero['id']) {
-            _mostrarMensaje('Esta máquina no pertenece al parqueadero actual');
-            return;
-          }
-          // Abrir correctivo presencial directamente
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => CorrectivoPresencialScreen(
-                parqueadero: widget.parqueadero,
-                maquina: maquina,
-              ),
-            ),
-          );
-        } else {
-          _mostrarMensaje('Máquina no encontrada');
+      final res = await http.get(
+        Uri.parse('$API_BASE_URL/maquinas/qr/$code'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        final maq = jsonDecode(res.body);
+        if (maq['parqueadero_id'] != widget.parqueadero['id']) {
+          _msg('Máquina de otro parqueadero');
+          return;
         }
-      } catch (e) {
-        _mostrarMensaje('Error al buscar máquina');
-      }
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CorrectivoPresencialScreen(
+              parqueadero: widget.parqueadero,
+              maquina: maq,
+            ),
+          ),
+        );
+      } else
+        _msg('No encontrada');
+    }
+  }
+
+  Future<void> _finalizar() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Finalizar labor'),
+        content: const Text(
+          '¿Está seguro de que desea finalizar la labor? Se requerirá la firma del cliente.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continuar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    final SignatureController ctrl = SignatureController(
+      penStrokeWidth: 2,
+      penColor: Colors.black,
+    );
+    final firmado = await showGeneralDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      pageBuilder: (ctx, anim, secAnim) => Scaffold(
+        backgroundColor: Colors.black54,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: Container(
+                  color: Colors.white,
+                  margin: const EdgeInsets.all(16),
+                  child: Signature(controller: ctrl),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => ctrl.clear(),
+                      icon: const Icon(Icons.undo),
+                      label: const Text('Borrar'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey,
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        if (ctrl.isEmpty) {
+                          _msg('Debe capturar la firma');
+                          return;
+                        }
+                        Navigator.pop(ctx, true);
+                      },
+                      icon: const Icon(Icons.check),
+                      label: const Text('Confirmar'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (firmado == true) {
+      _msg('Labor finalizada', err: false);
+      Navigator.pop(context);
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.parqueadero['nombre']),
-        backgroundColor: const Color(0xFF004A99),
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Column(
+        children: [
+          Row(
+            children: [
+              Image.network('https://i.imgur.com/dpfS4Xw.png', height: 40),
+              const SizedBox(width: 8),
+              const Text('Menú del Parqueadero'),
+            ],
+          ),
+          Text(
+            widget.parqueadero['nombre'],
+            style: const TextStyle(fontSize: 14),
+          ),
+        ],
       ),
-      body: _cargando
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _correctivo,
-                      icon: const Icon(Icons.build),
-                      label: const Text('Mantenimiento Correctivo'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _preventivo,
-                      icon: const Icon(Icons.checklist),
-                      label: const Text('Mantenimiento Preventivo'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _leerQR,
-                      icon: const Icon(Icons.qr_code_scanner),
-                      label: const Text('Leer QR de máquina'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+      backgroundColor: const Color(0xFF004A99),
+    ),
+    body: _cargando
+        ? const Center(child: CircularProgressIndicator())
+        : Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _boton('Mantenimiento Correctivo', Icons.build, _correctivo),
+                const SizedBox(height: 12),
+                _boton(
+                  'Mantenimiento Preventivo',
+                  Icons.checklist,
+                  _preventivo,
+                ),
+                const SizedBox(height: 12),
+                _boton('Leer QR de máquina', Icons.qr_code_scanner, _leerQR),
+                const SizedBox(height: 12),
+                _boton(
+                  'Finalizar labor (firma obligatoria)',
+                  Icons.draw,
+                  _finalizar,
+                  Colors.green,
+                ),
+              ],
             ),
-    );
-  }
+          ),
+  );
+
+  Widget _boton(
+    String texto,
+    IconData icon,
+    VoidCallback onTap, [
+    Color? color,
+  ]) => SizedBox(
+    width: double.infinity,
+    child: ElevatedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon),
+      label: Text(texto),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color ?? const Color(0xFFE30613),
+        minimumSize: const Size(0, 45),
+      ),
+    ),
+  );
 }

@@ -5,70 +5,22 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
 
-class CorrectivoPresencialScreen extends StatefulWidget {
+class CorrectivoRemotoScreen extends StatefulWidget {
   final Map<String, dynamic> parqueadero;
-  final Map<String, dynamic> maquina;
-  const CorrectivoPresencialScreen({
-    super.key,
-    required this.parqueadero,
-    required this.maquina,
-  });
+  const CorrectivoRemotoScreen({super.key, required this.parqueadero});
   @override
-  State<CorrectivoPresencialScreen> createState() =>
-      _CorrectivoPresencialScreenState();
+  State<CorrectivoRemotoScreen> createState() => _CorrectivoRemotoScreenState();
 }
 
-class _CorrectivoPresencialScreenState
-    extends State<CorrectivoPresencialScreen> {
-  final _obs = TextEditingController();
-  String? _fallaSeleccionada;
-  String _fallaPersonalizada = '';
-  List<String> _fallasPosibles = [],
-      _fotosAntes = [],
-      _fotosDespues = [],
-      _fotosCotizacion = [];
+class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
+  final _desc = TextEditingController(), _falla = TextEditingController();
+  List<String> _fotosAntes = [], _fotosDespues = [], _fotosCotizacion = [];
   bool _enviando = false, _requiereCotizacion = false;
   String _cotizacionRepuesto = '';
-  final Map<String, List<String>> _fallasPorTipo = {
-    'Barrera': ['No sube', 'No baja', 'Brazo roto', 'Lector no responde'],
-    'Camara': [
-      'Imagen borrosa',
-      'No enciende',
-      'Conexión falla',
-      'Lente sucio',
-    ],
-    'Validador': [
-      'No lee tarjeta',
-      'No lee QR',
-      'Pantalla apagada',
-      'Error de comunicación',
-    ],
-    'Dispensador': [
-      'No dispensa',
-      'Atasco',
-      'Tíquet sin cortar',
-      'Error de impresión',
-    ],
-    'LPR': ['No reconoce placa', 'Cámara desenfocada', 'Iluminación falla'],
-    'Cajero': [
-      'No acepta monedas',
-      'No acepta billetes',
-      'Pantalla negra',
-      'Atasco',
-    ],
-  };
 
-  @override
-  void initState() {
-    super.initState();
-    final tipo = widget.maquina['tipo'] ?? '';
-    _fallasPosibles = List.from(
-      _fallasPorTipo[tipo] ?? ['Falla general', 'Sin diagnóstico'],
-    )..add('Otro');
-  }
-
-  Future<void> _tomarFoto(String cat) async {
-    final f = await ImagePicker().pickImage(source: ImageSource.camera);
+  Future<void> _tomarFoto(String cat, bool useCamera) async {
+    final source = useCamera ? ImageSource.camera : ImageSource.gallery;
+    final f = await ImagePicker().pickImage(source: source);
     if (f != null) {
       final b = await f.readAsBytes();
       if (cat == 'antes')
@@ -130,7 +82,7 @@ class _CorrectivoPresencialScreenState
                 ),
                 ElevatedButton.icon(
                   onPressed: () async {
-                    await _tomarFoto('cotizacion');
+                    await _tomarFoto('cotizacion', true);
                     setStateDialog(() {});
                   },
                   icon: const Icon(Icons.camera_alt),
@@ -155,28 +107,16 @@ class _CorrectivoPresencialScreenState
     }
   }
 
-  Future<void> _guardar() async {
-    if (_obs.text.isEmpty) {
-      _msg('Escribe observaciones');
+  Future<void> _enviar() async {
+    if (_desc.text.isEmpty || _falla.text.isEmpty) {
+      _msg('Completa todos los campos');
       return;
-    }
-    if (_fallaSeleccionada == null) {
-      _msg('Selecciona falla');
-      return;
-    }
-    String falla = _fallaSeleccionada!;
-    if (falla == 'Otro') {
-      if (_fallaPersonalizada.isEmpty) {
-        _msg('Escribe la falla');
-        return;
-      }
-      falla = _fallaPersonalizada;
     }
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Guardar reporte'),
-        content: const Text('¿Confirma que desea guardar este reporte?'),
+        title: const Text('Enviar reporte'),
+        content: const Text('¿Confirma que desea enviar este reporte remoto?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -184,7 +124,7 @@ class _CorrectivoPresencialScreenState
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Guardar'),
+            child: const Text('Enviar'),
           ),
         ],
       ),
@@ -201,16 +141,15 @@ class _CorrectivoPresencialScreenState
         headers: {'Authorization': 'Bearer $token'},
         body: {
           'descripcion':
-              'Falla: $falla\nObservaciones: ${_obs.text}\nCotización: ${_requiereCotizacion ? _cotizacionRepuesto : "No"}',
+              'Falla remota: ${_falla.text}\nDescripción: ${_desc.text}\nCotización: ${_requiereCotizacion ? _cotizacionRepuesto : "No"}',
           'lat': lat.toString(),
           'lon': lon.toString(),
           'tipo': 'correctivo',
           'fotos': (_fotosAntes + _fotosDespues + _fotosCotizacion).join(','),
-          'maquina_id': widget.maquina['id'].toString(),
         },
       );
       if (res.statusCode == 200) {
-        _msg('Reporte guardado', err: false);
+        _msg('Reporte enviado', err: false);
         Navigator.pop(context, true);
       } else
         _msg('Error: ${res.statusCode}');
@@ -231,12 +170,34 @@ class _CorrectivoPresencialScreenState
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text('Correctivo - ${widget.maquina['nombre']}')),
+    appBar: AppBar(title: const Text('Mantenimiento Remoto')),
     body: SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const Text(
+            'Falla reportada',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          TextField(
+            controller: _falla,
+            decoration: const InputDecoration(
+              hintText: 'Ej: No responde el sistema',
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Descripción',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          TextField(
+            controller: _desc,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'Detalles del problema',
+            ),
+          ),
+          const SizedBox(height: 16),
           const Text(
             'Fotos antes',
             style: TextStyle(fontWeight: FontWeight.bold),
@@ -256,10 +217,20 @@ class _CorrectivoPresencialScreenState
                 )
                 .toList(),
           ),
-          ElevatedButton.icon(
-            onPressed: () => _tomarFoto('antes'),
-            icon: const Icon(Icons.camera_alt),
-            label: const Text('Tomar foto (antes)'),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: () => _tomarFoto('antes', true),
+                icon: const Icon(Icons.camera_alt),
+                label: const Text('Tomar foto'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: () => _tomarFoto('antes', false),
+                icon: const Icon(Icons.photo_library),
+                label: const Text('Galería'),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           const Text(
@@ -281,35 +252,20 @@ class _CorrectivoPresencialScreenState
                 )
                 .toList(),
           ),
-          ElevatedButton.icon(
-            onPressed: () => _tomarFoto('despues'),
-            icon: const Icon(Icons.camera_alt),
-            label: const Text('Tomar foto (después)'),
-          ),
-          const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            value: _fallaSeleccionada,
-            hint: const Text('Selecciona falla'),
-            items: _fallasPosibles
-                .map((f) => DropdownMenuItem(value: f, child: Text(f)))
-                .toList(),
-            onChanged: (v) => setState(() => _fallaSeleccionada = v),
-            decoration: const InputDecoration(border: OutlineInputBorder()),
-          ),
-          if (_fallaSeleccionada == 'Otro')
-            TextField(
-              onChanged: (v) => _fallaPersonalizada = v,
-              decoration: const InputDecoration(labelText: 'Especificar falla'),
-            ),
-          const SizedBox(height: 16),
-          const Text(
-            'Observaciones',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          TextField(
-            controller: _obs,
-            maxLines: 3,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: () => _tomarFoto('despues', true),
+                icon: const Icon(Icons.camera_alt),
+                label: const Text('Tomar foto'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: () => _tomarFoto('despues', false),
+                icon: const Icon(Icons.photo_library),
+                label: const Text('Galería'),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           ElevatedButton.icon(
@@ -326,13 +282,13 @@ class _CorrectivoPresencialScreenState
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _enviando ? null : _guardar,
+              onPressed: _enviando ? null : _enviar,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFE30613),
               ),
               child: _enviando
                   ? const CircularProgressIndicator()
-                  : const Text('Guardar reporte'),
+                  : const Text('Enviar reporte'),
             ),
           ),
         ],

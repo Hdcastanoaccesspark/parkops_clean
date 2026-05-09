@@ -4,130 +4,98 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/cliente_dashboard.dart';
 import 'screens/tecnico_dashboard.dart';
+import 'screens/admin_dashboard.dart';
 import 'config.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+void main() => runApp(const MyApp());
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'ParkOps',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        scaffoldBackgroundColor: Colors.white,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF004A99),
-          foregroundColor: Colors.white,
-          titleTextStyle: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFE30613),
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        ),
-        floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: Color(0xFFE30613),
-          foregroundColor: Colors.white,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          focusedBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Color(0xFF004A99), width: 2),
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-      ),
-      home: const LoginScreen(),
-      routes: {
-        '/cliente': (context) => const ClienteDashboard(),
-        '/tecnico': (context) => const TecnicoDashboard(),
-      },
-    );
-  }
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'ParkOps',
+    theme: ThemeData(primarySwatch: Colors.blue),
+    initialRoute: '/login',
+    routes: {
+      '/login': (context) => const LoginScreen(),
+      '/cliente': (context) => const ClienteDashboard(),
+      '/tecnico': (context) => const TecnicoDashboard(),
+      '/admin': (context) => const AdminDashboard(),
+    },
+    debugShowCheckedModeBanner: false,
+  );
 }
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
-
   @override
-  LoginScreenState createState() => LoginScreenState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  bool _isLoading = false;
+class _LoginScreenState extends State<LoginScreen> {
+  final _email = TextEditingController();
+  final _pass = TextEditingController();
+  bool _loading = false;
 
   Future<void> _login() async {
-    setState(() => _isLoading = true);
+    setState(() => _loading = true);
     try {
-      final response = await http.post(
+      final res = await http.post(
         Uri.parse('$API_BASE_URL/auth/login'),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {
-          'email': _emailController.text,
-          'password': _passwordController.text,
-        },
+        body: {'email': _email.text, 'password': _pass.text},
       );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('token', data['token']);
         await prefs.setString('rol', data['rol']);
         await prefs.setInt('userId', data['user_id']);
-        if (data['rol'] == 'cliente') {
-          if (mounted) Navigator.pushReplacementNamed(context, '/cliente');
-        } else if (data['rol'] == 'tecnico') {
-          if (mounted) Navigator.pushReplacementNamed(context, '/tecnico');
-        } else {
-          if (mounted) Navigator.pushReplacementNamed(context, '/cliente');
+        if (mounted) {
+          Navigator.pushReplacementNamed(
+            context,
+            data['rol'] == 'cliente'
+                ? '/cliente'
+                : data['rol'] == 'tecnico'
+                ? '/tecnico'
+                : '/admin',
+          );
         }
       } else {
-        if (mounted) _showError('Credenciales incorrectas');
+        if (mounted) _error('Credenciales incorrectas');
       }
     } catch (e) {
-      if (mounted) _showError('Error de conexión: $e');
+      if (mounted) _error('Error de conexión');
     }
-    if (mounted) setState(() => _isLoading = false);
+    if (mounted) setState(() => _loading = false);
   }
 
-  void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
+  void _error(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('ParkOps Login')),
-      body: Padding(
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.white,
+    body: Center(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Image.network('https://i.imgur.com/dpfS4Xw.png', height: 80),
+            const SizedBox(height: 20),
             TextField(
-              controller: _emailController,
+              controller: _email,
               decoration: const InputDecoration(labelText: 'Email'),
             ),
+            const SizedBox(height: 10),
             TextField(
-              controller: _passwordController,
+              controller: _pass,
               obscureText: true,
               decoration: const InputDecoration(labelText: 'Contraseña'),
             ),
             const SizedBox(height: 20),
-            _isLoading
+            _loading
                 ? const CircularProgressIndicator()
                 : ElevatedButton(
                     onPressed: _login,
@@ -136,6 +104,6 @@ class LoginScreenState extends State<LoginScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
 }

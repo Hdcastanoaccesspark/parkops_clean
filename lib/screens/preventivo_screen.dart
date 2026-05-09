@@ -13,151 +13,403 @@ class PreventivoScreen extends StatefulWidget {
     required this.parqueadero,
     required this.maquinas,
   });
-
   @override
   State<PreventivoScreen> createState() => _PreventivoScreenState();
 }
 
 class _PreventivoScreenState extends State<PreventivoScreen> {
-  // Para cada máquina, guardamos observaciones y fotos
-  Map<String, dynamic> _datos = {};
-  bool _enviando = false;
+  bool _backupRealizado = false;
+  bool _preguntandoBackup = true;
+  Map<String, dynamic> _maquinaSeleccionada = {};
+  List<String> _fotosAntes = [], _fotosDespues = [], _fotosCotizacion = [];
+  final _obs = TextEditingController();
+  String _cotizacionRepuesto = '', _motivoNoBackup = '';
+  bool _requiereCotizacion = false,
+      _mostrandoChecklist = false,
+      _enviando = false;
+  final Map<String, String> _mediciones = {
+    'faseNeutro': '',
+    'faseTierra': '',
+    'neutroTierra': '',
+    'ups': '',
+    'protectorVoltaje': '',
+    'observacionesExtra': '',
+  };
 
   @override
   void initState() {
     super.initState();
-    for (var m in widget.maquinas) {
-      _datos[m['id'].toString()] = {'observaciones': '', 'fotos': []};
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _preguntarBackup());
   }
 
-  Future<void> _tomarFoto(String maquinaId) async {
-    final picker = ImagePicker();
-    final foto = await picker.pickImage(source: ImageSource.camera);
-    if (foto != null) {
-      final bytes = await foto.readAsBytes();
-      final base64 = base64Encode(bytes);
-      setState(() {
-        _datos[maquinaId]['fotos'].add(base64);
-      });
-    }
-  }
-
-  Future<void> _guardarTodo() async {
-    // Validar que todas las máquinas tengan observaciones
-    for (var m in widget.maquinas) {
-      if (_datos[m['id'].toString()]['observaciones'].isEmpty) {
-        _mostrarMensaje('Completa las observaciones para ${m['nombre']}');
-        return;
-      }
-    }
-    setState(() => _enviando = true);
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
-    // Enviar un reporte por cada máquina (o consolidado, según convenga)
-    // Por simplicidad, enviamos uno por máquina
-    int enviados = 0;
-    for (var m in widget.maquinas) {
-      final datos = _datos[m['id'].toString()];
-      final response = await http.post(
-        Uri.parse('$API_BASE_URL/solicitudes/crear'),
-        headers: {'Authorization': 'Bearer $token'},
-        body: {
-          'descripcion': 'Preventivo: ${datos['observaciones']}',
-          'lat': '4.6',
-          'lon': '-74.0',
-          'tipo': 'preventivo',
-          'fotos': datos['fotos'].join(','),
-          'maquina_id': m['id'].toString(),
-        },
-      );
-      if (response.statusCode == 200) enviados++;
-    }
-    if (enviados == widget.maquinas.length) {
-      _mostrarMensaje('Todos los reportes guardados', isError: false);
-      Navigator.pop(context, true);
-    } else {
-      _mostrarMensaje('Error en algunos reportes');
-    }
-    setState(() => _enviando = false);
-  }
-
-  void _mostrarMensaje(String msg, {bool isError = true}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? Colors.red : Colors.green,
+  Future<void> _preguntarBackup() async {
+    final c = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Backup de base de datos'),
+        content: const Text('¿Se realizó el backup antes del mantenimiento?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sí'),
+          ),
+        ],
       ),
     );
+    if (c == true) {
+      if (mounted)
+        setState(() {
+          _backupRealizado = true;
+          _preguntandoBackup = false;
+        });
+      return;
+    }
+    final motivo = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Motivo'),
+        content: TextField(
+          decoration: const InputDecoration(
+            hintText: '¿Por qué no se realizó el backup?',
+          ),
+          onChanged: (v) => _motivoNoBackup = v,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _motivoNoBackup),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    if (motivo != null && motivo.isNotEmpty) {
+      if (mounted)
+        setState(() {
+          _backupRealizado = true;
+          _preguntandoBackup = false;
+        });
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Debe especificar un motivo o realizar el backup'),
+          ),
+        );
+        Navigator.pop(context);
+      }
+    }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Mantenimiento Preventivo')),
-      body: ListView.builder(
-        itemCount: widget.maquinas.length,
-        itemBuilder: (ctx, i) {
-          final m = widget.maquinas[i];
-          final mid = m['id'].toString();
-          final datos = _datos[mid];
-          return Card(
-            margin: const EdgeInsets.all(8),
-            child: ExpansionTile(
-              title: Text(m['nombre']),
+  void _seleccionarMaquina(Map<String, dynamic> m) => setState(() {
+    _maquinaSeleccionada = m;
+    _mostrandoChecklist = true;
+  });
+
+  Future<void> _tomarFoto(String cat) async {
+    final f = await ImagePicker().pickImage(source: ImageSource.camera);
+    if (f != null) {
+      final b = await f.readAsBytes();
+      if (cat == 'antes')
+        _fotosAntes.add(base64Encode(b));
+      else if (cat == 'despues')
+        _fotosDespues.add(base64Encode(b));
+      else
+        _fotosCotizacion.add(base64Encode(b));
+      setState(() {});
+    }
+  }
+
+  Future<void> _cotDialog() async {
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cotización'),
+        content: const Text('¿Requiere repuestos?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sí'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No'),
+          ),
+        ],
+      ),
+    );
+    if (r == true) {
+      final rep = await showDialog<String>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setStateDialog) => AlertDialog(
+            title: const Text('Detalle'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Column(
-                    children: [
-                      TextField(
-                        decoration: const InputDecoration(
-                          labelText: 'Observaciones / tareas realizadas',
+                TextField(
+                  decoration: const InputDecoration(hintText: 'Ej: Batería'),
+                  onChanged: (v) => _cotizacionRepuesto = v,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  children: _fotosCotizacion
+                      .map(
+                        (f) => Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Image.memory(
+                            base64Decode(f),
+                            width: 60,
+                            height: 60,
+                            fit: BoxFit.cover,
+                          ),
                         ),
-                        maxLines: 2,
-                        onChanged: (val) => _datos[mid]['observaciones'] = val,
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        children: datos['fotos']
-                            .map<Widget>(
-                              (f) => Padding(
-                                padding: const EdgeInsets.all(4),
-                                child: Image.memory(
-                                  base64Decode(f),
-                                  width: 60,
-                                  height: 60,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: () => _tomarFoto(mid),
-                        icon: const Icon(Icons.camera_alt),
-                        label: const Text('Tomar foto'),
-                      ),
-                    ],
-                  ),
+                      )
+                      .toList(),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    await _tomarFoto('cotizacion');
+                    setStateDialog(() {});
+                  },
+                  icon: const Icon(Icons.camera_alt),
+                  label: const Text('Foto del repuesto'),
                 ),
               ],
             ),
-          );
-        },
-      ),
-      bottomNavigationBar: Padding(
-        padding: const EdgeInsets.all(16),
-        child: ElevatedButton(
-          onPressed: _enviando ? null : _guardarTodo,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFE30613),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, _cotizacionRepuesto),
+                child: const Text('Guardar'),
+              ),
+            ],
           ),
-          child: _enviando
-              ? const CircularProgressIndicator()
-              : const Text('Guardar todos los reportes'),
         ),
+      );
+      if (rep != null && rep.isNotEmpty)
+        setState(() {
+          _requiereCotizacion = true;
+          _cotizacionRepuesto = rep;
+        });
+    }
+  }
+
+  Future<void> _guardar() async {
+    if (_maquinaSeleccionada.isEmpty) {
+      _msg('Selecciona una máquina');
+      return;
+    }
+    if (!_backupRealizado) {
+      _msg('Debes confirmar el backup');
+      return;
+    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Guardar reporte'),
+        content: const Text(
+          '¿Confirma que desea guardar este reporte preventivo?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Guardar'),
+          ),
+        ],
       ),
+    );
+    if (confirm != true) return;
+
+    setState(() => _enviando = true);
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    String d =
+        'Preventivo en ${_maquinaSeleccionada['nombre']}\n'
+        'Mediciones: F-N=${_mediciones['faseNeutro']}V, F-T=${_mediciones['faseTierra']}V, N-T=${_mediciones['neutroTierra']}V, UPS=${_mediciones['ups']}V, Protector=${_mediciones['protectorVoltaje']}V\n'
+        'Obs extra: ${_mediciones['observacionesExtra']}\n'
+        'Obs generales: ${_obs.text}\n'
+        'Cotización: ${_requiereCotizacion ? _cotizacionRepuesto : "No"}\n'
+        'Backup: ${_motivoNoBackup.isEmpty ? "Sí" : "No - $_motivoNoBackup"}';
+    try {
+      final res = await http.post(
+        Uri.parse('$API_BASE_URL/solicitudes/crear'),
+        headers: {'Authorization': 'Bearer $token'},
+        body: {
+          'descripcion': d,
+          'lat': '4.6',
+          'lon': '-74.0',
+          'tipo': 'preventivo',
+          'fotos': (_fotosAntes + _fotosDespues + _fotosCotizacion).join(','),
+          'maquina_id': _maquinaSeleccionada['id'].toString(),
+        },
+      );
+      if (res.statusCode == 200) {
+        _msg('Reporte guardado', err: false);
+        Navigator.pop(context, true);
+      } else
+        _msg('Error: ${res.statusCode}');
+    } catch (e) {
+      _msg('Error: $e');
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
+  }
+
+  void _msg(String m, {bool err = true}) =>
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(m),
+          backgroundColor: err ? Colors.red : Colors.green,
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    if (_preguntandoBackup)
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (!_backupRealizado)
+      return const Scaffold(
+        body: Center(child: Text('Debes confirmar el backup para continuar.')),
+      );
+    return Scaffold(
+      appBar: AppBar(title: const Text('Mantenimiento Preventivo')),
+      body: _mostrandoChecklist
+          ? SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  const Text(
+                    'Mediciones eléctricas',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  ...[
+                    'faseNeutro',
+                    'faseTierra',
+                    'neutroTierra',
+                    'ups',
+                    'protectorVoltaje',
+                  ].map(
+                    (e) => TextField(
+                      decoration: InputDecoration(
+                        labelText: e == 'faseNeutro'
+                            ? 'Fase-Neutro (V)'
+                            : e == 'faseTierra'
+                            ? 'Fase-Tierra (V)'
+                            : e == 'neutroTierra'
+                            ? 'Neutro-Tierra (V)'
+                            : e == 'ups'
+                            ? 'UPS (V)'
+                            : 'Protector de voltaje (V)',
+                      ),
+                      onChanged: (v) => _mediciones[e] = v,
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                  TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Observaciones adicionales',
+                    ),
+                    onChanged: (v) => _mediciones['observacionesExtra'] = v,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Fotos antes',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Wrap(
+                    children: _fotosAntes
+                        .map(
+                          (f) => Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Image.memory(
+                              base64Decode(f),
+                              width: 80,
+                              height: 80,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => _tomarFoto('antes'),
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text('Tomar foto antes'),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Fotos después',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Wrap(
+                    children: _fotosDespues
+                        .map(
+                          (f) => Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Image.memory(
+                              base64Decode(f),
+                              width: 80,
+                              height: 80,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => _tomarFoto('despues'),
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text('Tomar foto después'),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Observaciones generales',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  TextField(controller: _obs, maxLines: 2),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: _cotDialog,
+                    icon: const Icon(Icons.request_quote),
+                    label: Text(
+                      _requiereCotizacion
+                          ? 'Cotización solicitada'
+                          : 'Agregar cotización',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: _enviando ? null : _guardar,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE30613),
+                    ),
+                    child: _enviando
+                        ? const CircularProgressIndicator()
+                        : const Text('Guardar reporte'),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              itemCount: widget.maquinas.length,
+              itemBuilder: (_, i) => ListTile(
+                title: Text(widget.maquinas[i]['nombre']),
+                onTap: () => _seleccionarMaquina(widget.maquinas[i]),
+                trailing: const Icon(Icons.chevron_right),
+              ),
+            ),
     );
   }
 }
