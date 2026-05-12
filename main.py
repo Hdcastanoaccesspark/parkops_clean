@@ -42,6 +42,7 @@ class User(Base):
     rh = Column(String, nullable=True)
     contacto_emergencia = Column(String, nullable=True)
     foto_perfil = Column(Text, nullable=True)
+    parqueadero_id = Column(Integer, ForeignKey('parqueaderos.id'), nullable=True)   # NUEVO
 
 class Solicitud(Base):
     __tablename__ = 'solicitudes'
@@ -64,7 +65,7 @@ class Solicitud(Base):
     items = Column(Text, nullable=True)
     firma = Column(Text, nullable=True)
     pdf_path = Column(String, nullable=True)
-    origen = Column(String, default='cliente')  # 'cliente' o 'tecnico'
+    origen = Column(String, default='cliente')
 
 class Jornada(Base):
     __tablename__ = 'jornadas'
@@ -98,24 +99,11 @@ class Maquina(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# ----- Seed de datos inicial -----
+# ----- Seed de datos inicial (no inserta cliente genérico, solo parqueaderos y máquinas) -----
 def seed_database():
     db = SessionLocal()
     try:
-        if db.query(User).count() == 0:
-            usuarios = [
-                {"email": "cliente@test.com", "password": "1234", "rol": "cliente", "nombre": "Cliente Demo"},
-                {"email": "tecnico1@test.com", "password": "1234", "rol": "tecnico", "nombre": "Tecnico Juan", "eps": "Nueva EPS", "arl": "Positiva", "rh": "O+", "contacto_emergencia": "Maria Perez - 3111234567"},
-                {"email": "tecnico2@test.com", "password": "1234", "rol": "tecnico", "nombre": "Tecnico Maria", "eps": "Sanitas", "arl": "Sura", "rh": "A-", "contacto_emergencia": "Luis Rodriguez - 3109876543"},
-                {"email": "coordinador@test.com", "password": "1234", "rol": "coordinador", "nombre": "Coord Ana"},
-                {"email": "lider@test.com", "password": "1234", "rol": "lider", "nombre": "Lider Carlos"},
-            ]
-            for u in usuarios:
-                hashed = bcrypt.hashpw(u["password"].encode(), bcrypt.gensalt())
-                db.add(User(email=u["email"], password=hashed.decode(), rol=u["rol"], nombre=u["nombre"],
-                            eps=u.get("eps"), arl=u.get("arl"), rh=u.get("rh"), contacto_emergencia=u.get("contacto_emergencia")))
-            db.commit()
-
+        # Insertar parqueaderos si no existen
         if db.query(Parqueadero).count() == 0:
             p1 = Parqueadero(nombre="Parqueadero Centro", direccion="Calle 19 # 5-30", lat=4.598, lon=-74.071, ciudad="Bogotá")
             p2 = Parqueadero(nombre="Centro Comercial Unicentro", direccion="Cra 68 # 90-12", lat=4.676, lon=-74.077, ciudad="Bogotá")
@@ -124,6 +112,9 @@ def seed_database():
             p5 = Parqueadero(nombre="Parqueadero Salitre", direccion="Calle 24 # 60-10", lat=4.653, lon=-74.104, ciudad="Bogotá")
             db.add_all([p1, p2, p3, p4, p5])
             db.commit()
+        # Insertar máquinas si no existen
+        if db.query(Maquina).count() == 0:
+            parques = db.query(Parqueadero).all()
             config = [
                 {"validador_tipo": "Tarjeta", "dispensador_tipo": "Tarjeta"},
                 {"validador_tipo": "QR", "dispensador_tipo": "Papel"},
@@ -132,7 +123,7 @@ def seed_database():
                 {"validador_tipo": "Tarjeta", "dispensador_tipo": "Tarjeta"},
             ]
             maquinas = []
-            for idx, p in enumerate([p1, p2, p3, p4, p5]):
+            for idx, p in enumerate(parques):
                 i = idx + 1
                 cfg = config[idx]
                 maquinas.append(Maquina(codigo_qr=f"VAL_{i:03d}", nombre=f"Validador {cfg['validador_tipo']}", tipo="Validador", parqueadero_id=p.id))
@@ -219,7 +210,24 @@ def login(email: str = Form(...), password: str = Form(...)):
     if not user or not bcrypt.checkpw(password.encode(), user.password.encode()):
         raise HTTPException(401, "Credenciales incorrectas")
     token = jwt.encode({"user_id": user.id, "rol": user.rol, "exp": datetime.now(timezone.utc) + timedelta(hours=24)}, SECRET_KEY)
-    return {"token": token, "rol": user.rol, "user_id": user.id}
+    # Datos adicionales
+    parqueadero_id = None
+    parqueadero_nombre = None
+    if user.rol == 'cliente' and user.parqueadero_id:
+        db2 = SessionLocal()
+        parqueadero = db2.query(Parqueadero).filter(Parqueadero.id == user.parqueadero_id).first()
+        db2.close()
+        if parqueadero:
+            parqueadero_id = parqueadero.id
+            parqueadero_nombre = parqueadero.nombre
+    return {
+        "token": token,
+        "rol": user.rol,
+        "user_id": user.id,
+        "nombre": user.nombre,
+        "parqueadero_id": parqueadero_id,
+        "parqueadero_nombre": parqueadero_nombre
+    }
 
 @app.get("/usuarios/{user_id}")
 def get_usuario(user_id: int, user=Depends(get_current_user)):
@@ -233,7 +241,8 @@ def get_usuario(user_id: int, user=Depends(get_current_user)):
     return {
         "id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol,
         "eps": usuario.eps, "arl": usuario.arl, "rh": usuario.rh,
-        "contacto_emergencia": usuario.contacto_emergencia, "foto_perfil": usuario.foto_perfil
+        "contacto_emergencia": usuario.contacto_emergencia, "foto_perfil": usuario.foto_perfil,
+        "parqueadero_id": usuario.parqueadero_id
     }
 
 @app.post("/solicitudes/crear")
@@ -245,7 +254,6 @@ def crear_solicitud(
         if user.rol not in ['cliente', 'tecnico']:
             raise HTTPException(403, "No autorizado")
         db = SessionLocal()
-        # Determinar origen
         origen = 'cliente' if user.rol == 'cliente' else 'tecnico'
         tecnicos = db.query(User).filter(User.rol == 'tecnico', User.disponible == True).all()
         if tecnicos and origen == 'cliente':
@@ -284,11 +292,10 @@ def listar_solicitudes(user=Depends(get_current_user)):
         if user.rol == 'cliente':
             solicitudes = db.query(Solicitud).filter(Solicitud.cliente_id == user.id).all()
         elif user.rol == 'tecnico':
-            # Pendientes (sin técnico) y las que él creó (origen='tecnico') o asignadas a él
             solicitudes = db.query(Solicitud).filter(
                 (Solicitud.estado == 'pendiente') |
                 (Solicitud.tecnico_id == user.id) |
-                (Solicitud.origen == 'tecnico')   # sus propios reportes
+                (Solicitud.origen == 'tecnico')
             ).all()
         else:
             solicitudes = db.query(Solicitud).all()
@@ -343,20 +350,17 @@ def aceptar_solicitud(solicitud_id: int, user=Depends(get_current_user)):
     try:
         if user.rol != 'tecnico': raise HTTPException(403, "No autorizado")
         db = SessionLocal()
-        # Permitir aceptar solicitudes pendientes (sin técnico) o las asignadas a él
         solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
         if not solicitud or solicitud.estado not in ['pendiente', 'asignada']:
             db.close(); raise HTTPException(404, "Solicitud no válida")
         if solicitud.tecnico_id is not None and solicitud.tecnico_id != user.id:
             db.close(); raise HTTPException(403, "Esta solicitud ya tiene otro técnico")
-        # Si está pendiente, asignarla a este técnico
         if solicitud.estado == 'pendiente':
             solicitud.tecnico_id = user.id
         solicitud.estado = 'aceptada'
         solicitud.fecha_aceptacion = datetime.now(timezone.utc)
         user.estado = 'ocupado'
-        db.commit()
-        db.close()
+        db.commit(); db.close()
         return {"mensaje": "Solicitud aceptada"}
     except Exception as e:
         raise HTTPException(500, f"Error al aceptar: {str(e)}")
@@ -388,10 +392,13 @@ def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = For
         try:
             pdf_path = generar_pdf(solicitud_id)
             solicitud.pdf_path = pdf_path
+            db.execute(
+                "INSERT INTO reportes (solicitud_id, pdf_url) VALUES (:sid, :url)",
+                {"sid": solicitud_id, "url": pdf_path}
+            )
         except Exception as e:
             print(f"Error generando PDF: {e}")
-        db.commit()
-        db.close()
+        db.commit(); db.close()
         return {"mensaje": "Servicio finalizado, PDF generado"}
     except Exception as e:
         raise HTTPException(500, f"Error al cerrar solicitud: {str(e)}")
@@ -407,8 +414,10 @@ def descargar_pdf(solicitud_id: int, user=Depends(get_current_user)):
         return FileResponse(solicitud.pdf_path, media_type='application/pdf', filename=f'reporte_{solicitud_id}.pdf')
     pdf_path = generar_pdf(solicitud_id)
     solicitud.pdf_path = pdf_path
-    db.commit()
-    db.close()
+    existe = db.execute("SELECT id FROM reportes WHERE solicitud_id = :sid", {"sid": solicitud_id}).first()
+    if not existe:
+        db.execute("INSERT INTO reportes (solicitud_id, pdf_url) VALUES (:sid, :url)", {"sid": solicitud_id, "url": pdf_path})
+    db.commit(); db.close()
     return FileResponse(pdf_path, media_type='application/pdf', filename=f'reporte_{solicitud_id}.pdf')
 
 @app.get("/tecnicos")
@@ -434,8 +443,7 @@ def asignar_tecnico(solicitud_id: int, tecnico_id: int = Form(...), user=Depends
     solicitud.tecnico_id = tecnico_id
     solicitud.estado = 'asignada'
     solicitud.fecha_asignacion = datetime.now(timezone.utc)
-    db.commit()
-    db.close()
+    db.commit(); db.close()
     return {"mensaje": f"Solicitud asignada a {tecnico.nombre}"}
 
 @app.put("/solicitudes/{solicitud_id}/reasignar")
@@ -454,8 +462,7 @@ def reasignar_tecnico(solicitud_id: int, nuevo_tecnico_id: int = Form(...), user
     solicitud.tecnico_id = nuevo_tecnico_id
     solicitud.estado = 'asignada'
     solicitud.fecha_asignacion = datetime.now(timezone.utc)
-    db.commit()
-    db.close()
+    db.commit(); db.close()
     return {"mensaje": f"Solicitud reasignada a {nuevo_tec.nombre}"}
 
 @app.post("/tecnico/devolver_a_pendiente/{solicitud_id}")
@@ -467,8 +474,7 @@ def devolver_a_pendiente(solicitud_id: int, motivo: str = Form(...), user=Depend
     if not solicitud or solicitud.estado != 'aceptada':
         db.close(); raise HTTPException(400, "La solicitud no está aceptada o no te pertenece")
     solicitud.estado = 'pendiente'
-    db.commit()
-    db.close()
+    db.commit(); db.close()
     return {"mensaje": "Solicitud devuelta a pendiente"}
 
 @app.delete("/solicitudes/{solicitud_id}")
@@ -482,8 +488,7 @@ def cancelar_solicitud(solicitud_id: int, user=Depends(get_current_user)):
     if solicitud.estado in ['finalizada', 'cancelada']:
         db.close(); raise HTTPException(400, "No se puede cancelar una solicitud en estado final")
     solicitud.estado = 'cancelada'
-    db.commit()
-    db.close()
+    db.commit(); db.close()
     return {"mensaje": "Solicitud cancelada"}
 
 @app.get("/parqueaderos")
@@ -528,12 +533,8 @@ def jornada_activa(user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(500, f"Error: {str(e)}")
 
-# ---------- NUEVOS ENDPOINTS ----------
 @app.get("/parqueaderos/{parqueadero_id}/reportes")
 def reportes_por_parqueadero(parqueadero_id: int, user=Depends(get_current_user)):
-    """
-    Endpoint de Keyshell: reportes finalizados del técnico en ese parqueadero.
-    """
     if user.rol != 'tecnico':
         raise HTTPException(403, "No autorizado")
     db = SessionLocal()
@@ -555,14 +556,11 @@ def reportes_por_parqueadero(parqueadero_id: int, user=Depends(get_current_user)
 
 @app.get("/tecnico/mis_reportes")
 def mis_reportes_tecnico(parqueadero_id: int, user=Depends(get_current_user)):
-    """
-    Reportes creados por el técnico (origen='tecnico') en el parqueadero, sin importar estado.
-    """
     if user.rol != 'tecnico':
         raise HTTPException(403, "No autorizado")
     db = SessionLocal()
     reportes = db.query(Solicitud).filter(
-        Solicitud.cliente_id == user.id,  # el técnico "cliente" de su propio reporte
+        Solicitud.cliente_id == user.id,
         Solicitud.origen == 'tecnico',
         Solicitud.maquina_id.in_(
             db.query(Maquina.id).filter(Maquina.parqueadero_id == parqueadero_id)
