@@ -6,9 +6,14 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta, timezone
-import bcrypt, jwt, math, os, traceback
+import bcrypt, jwt, math, os, traceback, base64
 from fpdf import FPDF
 from dotenv import load_dotenv
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email import encoders
 
 load_dotenv()
 
@@ -175,6 +180,7 @@ def generar_pdf(solicitud_id: int):
     cliente = db.query(User).filter(User.id == solicitud.cliente_id).first()
     tecnico = db.query(User).filter(User.id == solicitud.tecnico_id).first() if solicitud.tecnico_id else None
     db.close()
+
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
@@ -187,15 +193,74 @@ def generar_pdf(solicitud_id: int):
     pdf.cell(200, 8, txt=f"Tipo: {solicitud.tipo}", ln=True)
     pdf.cell(200, 8, txt=f"Descripcion: {solicitud.descripcion[:150]}...", ln=True)
     pdf.cell(200, 8, txt=f"Estado: {solicitud.estado}", ln=True)
+
+    # Intentar insertar fotos
     if solicitud.fotos:
         fotos_list = [f for f in solicitud.fotos.split(',') if f]
-        pdf.cell(200, 8, txt=f"Fotos adjuntas: {len(fotos_list)}", ln=True)
-    pdf.cell(200, 8, txt=f"Fecha: {solicitud.fecha_creacion} a {solicitud.fecha_fin}", ln=True)
+        pdf.ln(5)
+        pdf.cell(200, 8, txt="Fotos adjuntas:", ln=True)
+        for idx, foto_base64 in enumerate(fotos_list):
+            try:
+                img_bytes = base64.b64decode(foto_base64)
+                img_path = f"/tmp/foto_{solicitud_id}_{idx}.jpg"
+                with open(img_path, "wb") as f:
+                    f.write(img_bytes)
+                # Insertar imagen (ajustar tamaño)
+                pdf.image(img_path, w=50, h=50)
+                pdf.ln(55)
+                # Eliminar temporal
+                os.remove(img_path)
+            except Exception as e:
+                print(f"Error insertando foto en PDF: {e}")
+
     if solicitud.firma:
         pdf.ln(5)
         pdf.cell(200, 8, txt="Firma digital registrada", ln=True)
+        try:
+            firma_bytes = base64.b64decode(solicitud.firma)
+            firma_path = f"/tmp/firma_{solicitud_id}.png"
+            with open(firma_path, "wb") as f:
+                f.write(firma_bytes)
+            pdf.image(firma_path, w=40, h=20)
+            pdf.ln(25)
+            os.remove(firma_path)
+        except Exception as e:
+            print(f"Error insertando firma en PDF: {e}")
+
+    pdf.cell(200, 8, txt=f"Fecha: {solicitud.fecha_creacion} a {solicitud.fecha_fin}", ln=True)
     pdf.output(f"/tmp/solicitud_{solicitud_id}.pdf")
     return f"/tmp/solicitud_{solicitud_id}.pdf"
+
+def enviar_correo_pdf(to_email: str, pdf_path: str, solicitud_id: int):
+    try:
+        email_user = os.getenv("EMAIL_USER", "h.castanoaccesspark@gmail.co")
+        email_pass = os.getenv("EMAIL_PASS", "")
+        if not email_user or not email_pass:
+            print("Credenciales de correo no configuradas")
+            return
+
+        msg = MIMEMultipart()
+        msg['From'] = email_user
+        msg['To'] = to_email
+        msg['Subject'] = f"Reporte de servicio #{solicitud_id}"
+        body = f"Adjuntamos el reporte de servicio correspondiente a su solicitud."
+        msg.attach(MIMEText(body, 'plain'))
+
+        with open(pdf_path, 'rb') as attachment:
+            part = MIMEBase('application', 'pdf')
+            part.set_payload(attachment.read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f'attachment; filename=reporte_{solicitud_id}.pdf')
+            msg.attach(part)
+
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(email_user, email_pass)
+        server.sendmail(email_user, to_email, msg.as_string())
+        server.quit()
+        print(f"Correo enviado a {to_email}")
+    except Exception as e:
+        print(f"Error enviando correo: {e}")
 
 # --------------------- ENDPOINTS ------------------------
 @app.get("/")
@@ -298,20 +363,24 @@ def listar_solicitudes(user=Depends(get_current_user)):
             ).all()
         else:
             solicitudes = db.query(Solicitud).all()
-        db.close()
         result = []
         for s in solicitudes:
             cliente_nombre = None
+            parqueadero_id = None
             if s.cliente_id:
                 db2 = SessionLocal()
                 cliente = db2.query(User).filter(User.id == s.cliente_id).first()
-                if cliente: cliente_nombre = cliente.nombre
+                if cliente:
+                    cliente_nombre = cliente.nombre
+                    parqueadero_id = cliente.parqueadero_id
                 db2.close()
             result.append({
                 "id": s.id, "descripcion": s.descripcion, "estado": s.estado, "tipo": s.tipo,
                 "cliente_nombre": cliente_nombre, "tecnico_id": s.tecnico_id,
-                "origen": s.origen
+                "origen": s.origen,
+                "parqueadero_id": parqueadero_id
             })
+        db.close()
         return result
     except Exception as e:
         traceback.print_exc()
@@ -395,8 +464,12 @@ def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = For
                 "INSERT INTO reportes (solicitud_id, pdf_url) VALUES (:sid, :url)",
                 {"sid": solicitud_id, "url": pdf_path}
             )
+            # Enviar correo al cliente
+            cliente_db = db.query(User).filter(User.id == solicitud.cliente_id).first()
+            if cliente_db:
+                enviar_correo_pdf("h.castanoaccesspark@gmail.co", pdf_path, solicitud_id)
         except Exception as e:
-            print(f"Error generando PDF: {e}")
+            print(f"Error generando PDF o enviando correo: {e}")
         db.commit(); db.close()
         return {"mensaje": "Servicio finalizado, PDF generado"}
     except Exception as e:
@@ -534,13 +607,12 @@ def jornada_activa(user=Depends(get_current_user)):
 
 @app.get("/parqueaderos/{parqueadero_id}/reportes")
 def reportes_por_parqueadero(parqueadero_id: int, user=Depends(get_current_user)):
-    if user.rol != 'tecnico':
+    if user.rol not in ['tecnico']:
         raise HTTPException(403, "No autorizado")
     db = SessionLocal()
     maquinas = db.query(Maquina).filter(Maquina.parqueadero_id == parqueadero_id).all()
     maquinas_ids = [m.id for m in maquinas]
     reportes = db.query(Solicitud).filter(
-        Solicitud.tecnico_id == user.id,
         Solicitud.estado == 'finalizada',
         Solicitud.maquina_id.in_(maquinas_ids)
     ).order_by(Solicitud.fecha_fin.desc()).all()
