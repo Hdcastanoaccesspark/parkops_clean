@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Form, Request
+from fastapi import FastAPI, HTTPException, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse, JSONResponse
@@ -42,7 +42,7 @@ class User(Base):
     rh = Column(String, nullable=True)
     contacto_emergencia = Column(String, nullable=True)
     foto_perfil = Column(Text, nullable=True)
-    parqueadero_id = Column(Integer, ForeignKey('parqueaderos.id'), nullable=True)   # NUEVO
+    parqueadero_id = Column(Integer, ForeignKey('parqueaderos.id'), nullable=True)
 
 class Solicitud(Base):
     __tablename__ = 'solicitudes'
@@ -99,11 +99,10 @@ class Maquina(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# ----- Seed de datos inicial (no inserta cliente genérico, solo parqueaderos y máquinas) -----
+# ----- Seed de datos inicial -----
 def seed_database():
     db = SessionLocal()
     try:
-        # Insertar parqueaderos si no existen
         if db.query(Parqueadero).count() == 0:
             p1 = Parqueadero(nombre="Parqueadero Centro", direccion="Calle 19 # 5-30", lat=4.598, lon=-74.071, ciudad="Bogotá")
             p2 = Parqueadero(nombre="Centro Comercial Unicentro", direccion="Cra 68 # 90-12", lat=4.676, lon=-74.077, ciudad="Bogotá")
@@ -112,9 +111,10 @@ def seed_database():
             p5 = Parqueadero(nombre="Parqueadero Salitre", direccion="Calle 24 # 60-10", lat=4.653, lon=-74.104, ciudad="Bogotá")
             db.add_all([p1, p2, p3, p4, p5])
             db.commit()
-        # Insertar máquinas si no existen
+
         if db.query(Maquina).count() == 0:
             parques = db.query(Parqueadero).all()
+            parques.sort(key=lambda x: x.id)
             config = [
                 {"validador_tipo": "Tarjeta", "dispensador_tipo": "Tarjeta"},
                 {"validador_tipo": "QR", "dispensador_tipo": "Papel"},
@@ -210,7 +210,6 @@ def login(email: str = Form(...), password: str = Form(...)):
     if not user or not bcrypt.checkpw(password.encode(), user.password.encode()):
         raise HTTPException(401, "Credenciales incorrectas")
     token = jwt.encode({"user_id": user.id, "rol": user.rol, "exp": datetime.now(timezone.utc) + timedelta(hours=24)}, SECRET_KEY)
-    # Datos adicionales
     parqueadero_id = None
     parqueadero_nombre = None
     if user.rol == 'cliente' and user.parqueadero_id:
