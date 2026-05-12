@@ -15,7 +15,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'ParkOps',
     theme: ThemeData(primarySwatch: Colors.blue),
-    initialRoute: '/login',
+    home: const SplashScreen(),
     routes: {
       '/login': (context) => const LoginScreen(),
       '/cliente': (context) => const ClienteDashboard(),
@@ -23,6 +23,51 @@ class MyApp extends StatelessWidget {
       '/admin': (context) => const AdminDashboard(),
     },
     debugShowCheckedModeBanner: false,
+  );
+}
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _verificarSesion();
+  }
+
+  Future<void> _verificarSesion() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    final rol = prefs.getString('rol');
+    if (token != null && rol != null) {
+      try {
+        final res = await http.get(
+          Uri.parse('$API_BASE_URL/'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+        if (res.statusCode == 200) {
+          if (mounted) Navigator.pushReplacementNamed(context, '/$rol');
+          return;
+        }
+      } catch (_) {}
+    }
+    if (mounted) Navigator.pushReplacementNamed(context, '/login');
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Container(
+      decoration: const BoxDecoration(
+        image: DecorationImage(
+          image: AssetImage('assets/splash.png'), // Imagen que debes agregar
+          fit: BoxFit.cover,
+        ),
+      ),
+    ),
   );
 }
 

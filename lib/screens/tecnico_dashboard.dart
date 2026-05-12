@@ -225,7 +225,10 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         setState(() {
           _visitasAsignadas = todas
               .where(
-                (s) => s['estado'] == 'asignada' || s['estado'] == 'pendiente',
+                (s) =>
+                    s['estado'] == 'asignada' ||
+                    s['estado'] == 'pendiente' ||
+                    s['estado'] == 'aceptada',
               )
               .toList();
           _cargandoVisitas = false;
@@ -268,6 +271,46 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       _msg('Solicitud aceptada', err: false);
     } else
       _msg('Error al aceptar: ${res.statusCode}');
+  }
+
+  Future<void> _devolverAPendiente(int id) async {
+    final motivoController = TextEditingController();
+    final motivo = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Devolver a pendiente'),
+        content: TextField(
+          controller: motivoController,
+          decoration: const InputDecoration(hintText: 'Motivo del retraso'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, motivoController.text),
+            child: const Text('Devolver'),
+          ),
+        ],
+      ),
+    );
+    if (motivo == null || motivo.isEmpty) {
+      _msg('Debes ingresar un motivo');
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    final res = await http.post(
+      Uri.parse('$API_BASE_URL/tecnico/devolver_a_pendiente/$id'),
+      headers: {'Authorization': 'Bearer $token'},
+      body: {'motivo': motivo},
+    );
+    if (res.statusCode == 200) {
+      _cargarVisitasAsignadas();
+      _msg('Solicitud devuelta a pendiente', err: false);
+    } else
+      _msg('Error al devolver: ${res.statusCode}');
   }
 
   Future<void> _entrarAParqueadero(Map<String, dynamic> p) async {
@@ -440,25 +483,46 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                     ? const Center(child: Text('No hay visitas asignadas.'))
                     : ListView.builder(
                         itemCount: _visitasAsignadas.length,
-                        itemBuilder: (_, i) => Card(
-                          margin: const EdgeInsets.all(8),
-                          child: ListTile(
-                            title: Text(
-                              'Cliente: ${_visitasAsignadas[i]['cliente_nombre'] ?? 'N/D'}',
-                            ),
-                            subtitle: Text(
-                              'Tipo: ${_visitasAsignadas[i]['tipo']}\n${_visitasAsignadas[i]['descripcion']}',
-                            ),
-                            trailing: ElevatedButton(
-                              onPressed: (!_jornadaActiva || _jornadaPausada)
-                                  ? null
-                                  : () => _aceptarSolicitud(
-                                      _visitasAsignadas[i]['id'],
+                        itemBuilder: (_, i) {
+                          final s = _visitasAsignadas[i];
+                          final bool puedeAceptar =
+                              s['estado'] == 'asignada' ||
+                              s['estado'] == 'pendiente';
+                          final bool puedeDevolver = s['estado'] == 'aceptada';
+                          return Card(
+                            margin: const EdgeInsets.all(8),
+                            child: ListTile(
+                              title: Text(
+                                'Cliente: ${s['cliente_nombre'] ?? 'N/D'}',
+                              ),
+                              subtitle: Text(
+                                '${s['tipo']} - ${s['estado']}\n${s['descripcion']}',
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (puedeAceptar)
+                                    ElevatedButton(
+                                      onPressed:
+                                          (!_jornadaActiva || _jornadaPausada)
+                                          ? null
+                                          : () => _aceptarSolicitud(s['id']),
+                                      child: const Text('Aceptar'),
                                     ),
-                              child: const Text('Aceptar'),
+                                  if (puedeDevolver)
+                                    TextButton(
+                                      onPressed: () =>
+                                          _devolverAPendiente(s['id']),
+                                      child: const Text(
+                                        'Devolver',
+                                        style: TextStyle(color: Colors.orange),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       )
               : _cargandoParqueaderos
               ? const Center(child: CircularProgressIndicator())

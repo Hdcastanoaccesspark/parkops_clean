@@ -157,16 +157,76 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
     }
   }
 
-  Future<void> _grabarVideo() async {
-    final p = ImagePicker();
-    final v = await p.pickVideo(
-      source: ImageSource.camera,
-      maxDuration: const Duration(seconds: 30),
+  void _mostrarDialogoFoto(int index) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Foto'),
+        content: const Text('¿Qué deseas hacer?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _mostrarFotoCompleta(_fotos[index]);
+            },
+            child: const Text('Ver'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _confirmarEliminarFoto(index);
+            },
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
     );
-    if (v != null) {
-      final bytes = await v.readAsBytes();
-      if (mounted) setState(() => _videoBase64 = base64Encode(bytes));
-    }
+  }
+
+  void _mostrarFotoCompleta(String base64) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            InteractiveViewer(child: Image.memory(base64Decode(base64))),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmarEliminarFoto(int index) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar foto'),
+        content: const Text('¿Estás seguro de que deseas eliminar esta foto?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              setState(() => _fotos.removeAt(index));
+            },
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _enviar() async {
@@ -267,41 +327,31 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
             },
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              ElevatedButton.icon(
-                onPressed: _tomarFoto,
-                icon: const Icon(Icons.camera_alt),
-                label: const Text('Foto'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE30613),
-                  foregroundColor: Colors.white,
-                ),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton.icon(
-                onPressed: _grabarVideo,
-                icon: const Icon(Icons.videocam),
-                label: const Text('Video'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
+          ElevatedButton.icon(
+            onPressed: _tomarFoto,
+            icon: const Icon(Icons.camera_alt),
+            label: const Text('Foto'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE30613),
+              foregroundColor: Colors.white,
+            ),
           ),
           const SizedBox(height: 8),
-          if (_videoBase64 != null) const Chip(label: Text('Video adjunto')),
           Wrap(
             children: _fotos
+                .asMap()
+                .entries
                 .map(
-                  (b) => Padding(
+                  (entry) => Padding(
                     padding: const EdgeInsets.all(4),
-                    child: Image.memory(
-                      base64Decode(b),
-                      width: 80,
-                      height: 80,
-                      fit: BoxFit.cover,
+                    child: GestureDetector(
+                      onTap: () => _mostrarDialogoFoto(entry.key),
+                      child: Image.memory(
+                        base64Decode(entry.value),
+                        width: 80,
+                        height: 80,
+                        fit: BoxFit.cover,
+                      ),
                     ),
                   ),
                 )

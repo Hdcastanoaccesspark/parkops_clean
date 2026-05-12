@@ -125,6 +125,96 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
     }
   }
 
+  void _mostrarDialogoFoto(List<String> fotos, int index) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Foto'),
+        content: const Text('¿Qué deseas hacer?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _mostrarFotoCompleta(fotos[index]);
+            },
+            child: const Text('Ver'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _confirmarEliminarFoto(fotos, index);
+            },
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _mostrarFotoCompleta(String base64) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            InteractiveViewer(child: Image.memory(base64Decode(base64))),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmarEliminarFoto(List<String> fotos, int index) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar foto'),
+        content: const Text('¿Estás seguro de que deseas eliminar esta foto?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              setState(() => fotos.removeAt(index));
+            },
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFotoLista(List<String> fotos) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: List.generate(fotos.length, (index) {
+        return GestureDetector(
+          onTap: () => _mostrarDialogoFoto(fotos, index),
+          child: Image.memory(
+            base64Decode(fotos[index]),
+            width: 80,
+            height: 80,
+            fit: BoxFit.cover,
+          ),
+        );
+      }),
+    );
+  }
+
   Future<void> _cotDialog() async {
     final r = await showDialog<bool>(
       context: context,
@@ -157,21 +247,7 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
                   onChanged: (v) => _cotizacionRepuesto = v,
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  children: _fotosCotizacion
-                      .map(
-                        (f) => Padding(
-                          padding: const EdgeInsets.all(4),
-                          child: Image.memory(
-                            base64Decode(f),
-                            width: 60,
-                            height: 60,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
+                _buildFotoLista(_fotosCotizacion),
                 ElevatedButton.icon(
                   onPressed: () async {
                     await _tomarFoto('cotizacion');
@@ -206,6 +282,10 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
     }
     if (!_backupRealizado) {
       _msg('Debes confirmar el backup');
+      return;
+    }
+    if (_fotosAntes.isEmpty) {
+      _msg('Debe tomar al menos una foto del ANTES');
       return;
     }
     final confirm = await showDialog<bool>(
@@ -253,8 +333,9 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
         },
       );
       if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
         _msg('Reporte guardado', err: false);
-        Navigator.pop(context, true);
+        Navigator.pop(context, data['solicitud_id']); // devuelve el ID
       } else
         _msg('Error: ${res.statusCode}');
     } catch (e) {
@@ -325,21 +406,7 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
                     'Fotos antes',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  Wrap(
-                    children: _fotosAntes
-                        .map(
-                          (f) => Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: Image.memory(
-                              base64Decode(f),
-                              width: 80,
-                              height: 80,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  ),
+                  _buildFotoLista(_fotosAntes),
                   ElevatedButton.icon(
                     onPressed: () => _tomarFoto('antes'),
                     icon: const Icon(Icons.camera_alt),
@@ -350,21 +417,7 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
                     'Fotos después',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  Wrap(
-                    children: _fotosDespues
-                        .map(
-                          (f) => Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: Image.memory(
-                              base64Decode(f),
-                              width: 80,
-                              height: 80,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  ),
+                  _buildFotoLista(_fotosDespues),
                   ElevatedButton.icon(
                     onPressed: () => _tomarFoto('despues'),
                     icon: const Icon(Icons.camera_alt),
