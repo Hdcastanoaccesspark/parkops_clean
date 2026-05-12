@@ -1,127 +1,161 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geolocator/geolocator.dart';
 import '../config.dart';
-import 'dart:io';
 
 class NuevaSolicitudScreen extends StatefulWidget {
   const NuevaSolicitudScreen({super.key});
-
   @override
   NuevaSolicitudScreenState createState() => NuevaSolicitudScreenState();
 }
 
 class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
-  final TextEditingController _descripcionController = TextEditingController();
-  String _tipo = 'preventivo';
+  final _desc = TextEditingController();
   final List<String> _fotos = [];
-  bool _isLoading = false;
+  bool _loading = false;
 
   Future<void> _tomarFoto() async {
-    final picker = ImagePicker();
-    final XFile? foto = await picker.pickImage(source: ImageSource.camera);
-    if (foto != null) {
-      final bytes = await foto.readAsBytes();
-      final base64Image = base64Encode(bytes);
-      if (mounted) setState(() => _fotos.add(base64Image));
+    final f = await ImagePicker().pickImage(source: ImageSource.camera);
+    if (f != null) {
+      final bytes = await f.readAsBytes();
+      if (mounted) setState(() => _fotos.add(base64Encode(bytes)));
     }
   }
 
-  Future<void> _enviarSolicitud() async {
-    if (_descripcionController.text.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Escribe una descripción')));
+  void _mostrarDialogoFoto(int index) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Foto'),
+        content: const Text('¿Qué deseas hacer?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _mostrarFotoCompleta(_fotos[index]);
+            },
+            child: const Text('Ver'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _confirmarEliminarFoto(index);
+            },
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _mostrarFotoCompleta(String base64) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            InteractiveViewer(child: Image.memory(base64Decode(base64))),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmarEliminarFoto(int index) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar foto'),
+        content: const Text('¿Estás seguro de que deseas eliminar esta foto?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              setState(() => _fotos.removeAt(index));
+            },
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _enviar() async {
+    if (_desc.text.isEmpty) {
+      _msg('Escribe una descripción');
       return;
     }
-
-    if (mounted) setState(() => _isLoading = true);
-
-    Position position;
+    setState(() => _loading = true);
+    Position pos;
     try {
-      position = await Geolocator.getCurrentPosition();
-    } catch (e) {
-      position =
-          await Geolocator.getLastKnownPosition() ??
-          Position(
-            latitude: 4.6,
-            longitude: -74.0,
-            timestamp: DateTime.now(),
-            accuracy: 10,
-            altitude: 0,
-            heading: 0,
-            speed: 0,
-            speedAccuracy: 0,
-            altitudeAccuracy: 10,
-            headingAccuracy: 10,
-          );
+      pos = await Geolocator.getCurrentPosition();
+    } catch (_) {
+      pos = Position(
+        latitude: 4.6,
+        longitude: -74.0,
+        timestamp: DateTime.now(),
+        accuracy: 10,
+        altitude: 0,
+        heading: 0,
+        speed: 0,
+        speedAccuracy: 0,
+        altitudeAccuracy: 10,
+        headingAccuracy: 10,
+      );
     }
-
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
-    if (token == null) {
-      if (mounted) setState(() => _isLoading = false);
-      _mostrarError('No hay sesión activa. Vuelve a iniciar sesión.');
-      return;
-    }
-
     try {
-      final response = await http
+      final res = await http
           .post(
             Uri.parse('$API_BASE_URL/solicitudes/crear'),
             headers: {'Authorization': 'Bearer $token'},
             body: {
-              'descripcion': _descripcionController.text,
-              'lat': position.latitude.toString(),
-              'lon': position.longitude.toString(),
-              'tipo': _tipo,
+              'descripcion': _desc.text,
+              'lat': pos.latitude.toString(),
+              'lon': pos.longitude.toString(),
+              'tipo': 'correctivo',
               'fotos': _fotos.join(','),
             },
           )
-          .timeout(const Duration(seconds: 15));
-
-      if (mounted) setState(() => _isLoading = false);
-
-      if (response.statusCode == 200) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Solicitud enviada correctamente')),
-        );
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode == 200) {
+        _msg('Solicitud enviada', err: false);
         if (mounted) Navigator.pop(context, true);
       } else {
-        _mostrarError(
-          'Error del servidor (${response.statusCode}): ${response.body}',
-        );
+        final body = jsonDecode(res.body);
+        _msg('Error: ${body['detail'] ?? res.statusCode}');
       }
-    } on SocketException {
-      if (mounted) setState(() => _isLoading = false);
-      _mostrarError('No hay conexión a internet. Verifica tu red.');
-    } on http.ClientException catch (e) {
-      if (mounted) setState(() => _isLoading = false);
-      _mostrarError('Error de conexión: $e');
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
-      _mostrarError('Error inesperado: $e');
+      _msg('Error de conexión: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  void _mostrarError(String mensaje) {
+  void _msg(String m, {bool err = true}) {
     if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Error'),
-        content: Text(mensaje),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(m),
+        backgroundColor: err ? Colors.red : Colors.green,
       ),
     );
   }
@@ -129,63 +163,65 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Nueva Solicitud')),
+      appBar: AppBar(
+        title: const Text('Nueva Solicitud'),
+        backgroundColor: const Color(0xFF004A99),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             TextField(
-              controller: _descripcionController,
-              decoration: const InputDecoration(labelText: 'Descripción'),
+              controller: _desc,
+              decoration: const InputDecoration(
+                labelText: 'Descripción',
+                border: OutlineInputBorder(),
+              ),
               maxLines: 3,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              initialValue: _tipo,
-              decoration: const InputDecoration(labelText: 'Tipo'),
-              items: const [
-                DropdownMenuItem(
-                  value: 'preventivo',
-                  child: Text('preventivo'),
-                ),
-                DropdownMenuItem(
-                  value: 'correctivo',
-                  child: Text('correctivo'),
-                ),
-              ],
-              onChanged: (value) {
-                if (value != null && mounted) setState(() => _tipo = value);
-              },
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: _tomarFoto,
               icon: const Icon(Icons.camera_alt),
               label: const Text('Tomar foto'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE30613),
+                foregroundColor: Colors.white,
+              ),
             ),
             const SizedBox(height: 8),
             Wrap(
-              children: _fotos
-                  .map(
-                    (fotoBase64) => Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Image.memory(
-                        base64Decode(fotoBase64),
-                        width: 80,
-                        height: 80,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  )
-                  .toList(),
+              spacing: 8,
+              runSpacing: 8,
+              children: List.generate(
+                _fotos.length,
+                (index) => GestureDetector(
+                  onTap: () => _mostrarDialogoFoto(index),
+                  child: Image.memory(
+                    base64Decode(_fotos[index]),
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
             ),
             const Spacer(),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _isLoading ? null : _enviarSolicitud,
-                child: _isLoading
-                    ? const CircularProgressIndicator()
+                onPressed: _loading ? null : _enviar,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE30613),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: _loading
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(color: Colors.white),
+                      )
                     : const Text('Enviar solicitud'),
               ),
             ),

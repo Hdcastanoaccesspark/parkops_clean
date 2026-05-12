@@ -59,16 +59,8 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: Container(
-      decoration: const BoxDecoration(
-        image: DecorationImage(
-          image: AssetImage('assets/splash.png'), // Imagen que debes agregar
-          fit: BoxFit.cover,
-        ),
-      ),
-    ),
-  );
+  Widget build(BuildContext context) =>
+      const Scaffold(body: Center(child: CircularProgressIndicator()));
 }
 
 class LoginScreen extends StatefulWidget {
@@ -96,15 +88,16 @@ class _LoginScreenState extends State<LoginScreen> {
         await prefs.setString('token', data['token']);
         await prefs.setString('rol', data['rol']);
         await prefs.setInt('userId', data['user_id']);
-        if (mounted) {
-          Navigator.pushReplacementNamed(
-            context,
-            data['rol'] == 'cliente'
-                ? '/cliente'
-                : data['rol'] == 'tecnico'
-                ? '/tecnico'
-                : '/admin',
+        await prefs.setString('nombre', data['nombre'] ?? '');
+        if (data['parqueadero_id'] != null) {
+          await prefs.setInt('parqueaderoId', data['parqueadero_id']);
+          await prefs.setString(
+            'parqueaderoNombre',
+            data['parqueadero_nombre'] ?? '',
           );
+        }
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/${data['rol']}');
         }
       } else {
         if (mounted) _error('Credenciales incorrectas');

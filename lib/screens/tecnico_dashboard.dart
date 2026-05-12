@@ -22,13 +22,22 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   String? _parqueaderoLaborNombre;
   bool _laborPausada = false;
   String _vistaActual = 'parqueaderos';
+  String _nombre = 'Técnico';
 
   @override
   void initState() {
     super.initState();
+    _loadUserData();
     _cargarParqueaderos();
     _cargarVisitasAsignadas();
     _consultarEstadoJornada();
+  }
+
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _nombre = prefs.getString('nombre') ?? 'Técnico';
+    });
   }
 
   Future<bool> _confirmar(String titulo, String mensaje) async {
@@ -83,9 +92,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (!await _confirmar(
       'Iniciar jornada',
       '¿Está seguro de que desea iniciar la jornada laboral?',
-    )) {
+    ))
       return;
-    }
     setState(() => _cargandoJornada = true);
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -101,9 +109,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       if (res.statusCode == 200) {
         setState(() => _jornadaActiva = true);
         _msg('Jornada iniciada');
-      } else {
+      } else
         _msg('Error al iniciar jornada: ${res.statusCode}');
-      }
     } catch (e) {
       _msg('Error GPS: $e');
     } finally {
@@ -115,9 +122,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (!await _confirmar(
       'Finalizar jornada',
       '¿Está seguro de que desea finalizar la jornada laboral?',
-    )) {
+    ))
       return;
-    }
     setState(() => _cargandoJornada = true);
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -138,9 +144,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           _laborPausada = false;
         });
         _msg('Jornada finalizada');
-      } else {
+      } else
         _msg('Error al finalizar jornada: ${res.statusCode}');
-      }
     } catch (e) {
       _msg('Error GPS: $e');
     } finally {
@@ -149,9 +154,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   }
 
   Future<void> _pausarJornada() async {
-    if (!await _confirmar('Pausar jornada', '¿Desea pausar la jornada?')) {
+    if (!await _confirmar('Pausar jornada', '¿Desea pausar la jornada?'))
       return;
-    }
     setState(() {
       _jornadaPausada = true;
       if (_parqueaderoLaborNombre != null) _laborPausada = true;
@@ -160,9 +164,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   }
 
   Future<void> _reanudarJornada() async {
-    if (!await _confirmar('Reanudar jornada', '¿Desea reanudar la jornada?')) {
+    if (!await _confirmar('Reanudar jornada', '¿Desea reanudar la jornada?'))
       return;
-    }
     setState(() {
       _jornadaPausada = false;
       if (_parqueaderoLaborNombre != null) _laborPausada = false;
@@ -189,17 +192,16 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         Uri.parse('$API_BASE_URL/parqueaderos'),
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (res.statusCode == 200) {
+      if (res.statusCode == 200)
         setState(() {
           _parqueaderos = jsonDecode(res.body);
           _cargandoParqueaderos = false;
         });
-      } else {
+      else
         setState(() {
           _cargandoParqueaderos = false;
           _errorParqueaderos = 'HTTP ${res.statusCode}';
         });
-      }
     } catch (e) {
       setState(() {
         _cargandoParqueaderos = false;
@@ -240,12 +242,11 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
               .toList();
           _cargandoVisitas = false;
         });
-      } else {
+      } else
         setState(() {
           _cargandoVisitas = false;
           _errorVisitas = 'HTTP ${res.statusCode}';
         });
-      }
     } catch (e) {
       setState(() {
         _cargandoVisitas = false;
@@ -266,9 +267,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (!await _confirmar(
       'Aceptar solicitud',
       '¿Confirma que desea aceptar esta visita?',
-    )) {
+    ))
       return;
-    }
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
     final res = await http.post(
@@ -278,9 +278,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (res.statusCode == 200) {
       _cargarVisitasAsignadas();
       _msg('Solicitud aceptada', err: false);
-    } else {
+    } else
       _msg('Error al aceptar: ${res.statusCode}');
-    }
   }
 
   Future<void> _devolverAPendiente(int id) async {
@@ -319,9 +318,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (res.statusCode == 200) {
       _cargarVisitasAsignadas();
       _msg('Solicitud devuelta a pendiente', err: false);
-    } else {
+    } else
       _msg('Error al devolver: ${res.statusCode}');
-    }
   }
 
   Future<void> _entrarAParqueadero(Map<String, dynamic> p) async {
@@ -336,9 +334,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (!await _confirmar(
       'Iniciar labor',
       '¿Desea iniciar labor en ${p['nombre']}?',
-    )) {
+    ))
       return;
-    }
     try {
       await Geolocator.getCurrentPosition();
     } catch (_) {}
@@ -374,7 +371,13 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         children: [
           Image.network('https://i.imgur.com/dpfS4Xw.png', height: 40),
           const SizedBox(width: 8),
-          const Text('ParkOps - Técnico'),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('ParkOps - Técnico', style: TextStyle(fontSize: 16)),
+              Text(_nombre, style: const TextStyle(fontSize: 12)),
+            ],
+          ),
         ],
       ),
       backgroundColor: const Color(0xFF004A99),

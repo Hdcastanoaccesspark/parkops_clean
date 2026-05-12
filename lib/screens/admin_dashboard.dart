@@ -15,11 +15,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
   List<dynamic> _tecnicos = [];
   bool _loading = true;
   String? _error;
+  String _nombre = 'Administrador';
 
   @override
   void initState() {
     super.initState();
+    _loadUserData();
     _cargarDatos();
+  }
+
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _nombre = prefs.getString('nombre') ?? 'Administrador';
+    });
   }
 
   Future<void> _cargarDatos() async {
@@ -100,9 +109,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (res.statusCode == 200) {
       _cargarDatos();
       _msg('Asignado correctamente');
-    } else {
+    } else
       _msg('Error al asignar');
-    }
   }
 
   Future<void> _reasignarTecnico(dynamic solicitud) async {
@@ -140,9 +148,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (res.statusCode == 200) {
       _cargarDatos();
       _msg('Reasignado correctamente');
-    } else {
+    } else
       _msg('Error al reasignar');
-    }
   }
 
   Future<void> _cancelarSolicitud(dynamic solicitud) async {
@@ -173,9 +180,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (res.statusCode == 200) {
       _cargarDatos();
       _msg('Solicitud cancelada');
-    } else {
+    } else
       _msg('Error al cancelar');
-    }
   }
 
   void _msg(String m) {
@@ -187,7 +193,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Panel de Administración'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Panel de Administración',
+              style: TextStyle(fontSize: 16),
+            ),
+            Text(_nombre, style: const TextStyle(fontSize: 12)),
+          ],
+        ),
         backgroundColor: const Color(0xFF004A99),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _cargarDatos),
