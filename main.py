@@ -12,13 +12,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ----- Configuración de base de datos (usa DATABASE_URL de entorno, o SQLite por defecto) -----
+# ----- Configuración de base de datos -----
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///parkops.db")
 
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={'check_same_thread': False})
 else:
-    # Corrige el prefijo para SQLAlchemy si viene de Supabase
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
     engine = create_engine(DATABASE_URL)
@@ -26,7 +25,7 @@ else:
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
-# ----- Modelos (completos, incluyendo los campos de perfil, PDF y videos) -----
+# ----- Modelos -----
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
@@ -65,6 +64,7 @@ class Solicitud(Base):
     items = Column(Text, nullable=True)
     firma = Column(Text, nullable=True)
     pdf_path = Column(String, nullable=True)
+    origen = Column(String, default='cliente')  # 'cliente' o 'tecnico'
 
 class Jornada(Base):
     __tablename__ = 'jornadas'
@@ -96,10 +96,9 @@ class Maquina(Base):
     lat = Column(Float, nullable=True)
     lon = Column(Float, nullable=True)
 
-# Crea las tablas si no existen (solo en SQLite; en PostgreSQL puede requerir permisos)
 Base.metadata.create_all(bind=engine)
 
-# ----- Seed de datos inicial (se ejecuta solo si las tablas están vacías) -----
+# ----- Seed de datos inicial -----
 def seed_database():
     db = SessionLocal()
     try:
@@ -246,8 +245,10 @@ def crear_solicitud(
         if user.rol not in ['cliente', 'tecnico']:
             raise HTTPException(403, "No autorizado")
         db = SessionLocal()
+        # Determinar origen
+        origen = 'cliente' if user.rol == 'cliente' else 'tecnico'
         tecnicos = db.query(User).filter(User.rol == 'tecnico', User.disponible == True).all()
-        if tecnicos:
+        if tecnicos and origen == 'cliente':
             tecnico = min(tecnicos, key=lambda t: distancia(lat, lon, t.lat or 0, t.lon or 0))
             estado = 'asignada'
             fecha_asignacion = datetime.now(timezone.utc)
@@ -263,10 +264,9 @@ def crear_solicitud(
             cliente_id=user.id, descripcion=descripcion, lat=lat, lon=lon, tipo=tipo,
             estado=estado, tecnico_id=tecnico.id if tecnico else None,
             maquina_id=maq_id, fecha_asignacion=fecha_asignacion,
-            fotos=fotos, videos=videos)
+            fotos=fotos, videos=videos, origen=origen)
         db.add(solicitud)
         db.commit()
-        # Evita el error DetachedInstanceError guardando datos antes de cerrar sesión
         solicitud_id = solicitud.id
         tecnico_nombre = tecnico.nombre if tecnico else None
         db.close()
@@ -284,7 +284,12 @@ def listar_solicitudes(user=Depends(get_current_user)):
         if user.rol == 'cliente':
             solicitudes = db.query(Solicitud).filter(Solicitud.cliente_id == user.id).all()
         elif user.rol == 'tecnico':
-            solicitudes = db.query(Solicitud).filter(Solicitud.tecnico_id == user.id).all()
+            # Pendientes (sin técnico) y las que él creó (origen='tecnico') o asignadas a él
+            solicitudes = db.query(Solicitud).filter(
+                (Solicitud.estado == 'pendiente') |
+                (Solicitud.tecnico_id == user.id) |
+                (Solicitud.origen == 'tecnico')   # sus propios reportes
+            ).all()
         else:
             solicitudes = db.query(Solicitud).all()
         db.close()
@@ -298,10 +303,12 @@ def listar_solicitudes(user=Depends(get_current_user)):
                 db2.close()
             result.append({
                 "id": s.id, "descripcion": s.descripcion, "estado": s.estado, "tipo": s.tipo,
-                "cliente_nombre": cliente_nombre, "tecnico_id": s.tecnico_id
+                "cliente_nombre": cliente_nombre, "tecnico_id": s.tecnico_id,
+                "origen": s.origen
             })
         return result
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, f"Error al listar solicitudes: {str(e)}")
 
 @app.post("/tecnico/iniciar_jornada")
@@ -336,12 +343,20 @@ def aceptar_solicitud(solicitud_id: int, user=Depends(get_current_user)):
     try:
         if user.rol != 'tecnico': raise HTTPException(403, "No autorizado")
         db = SessionLocal()
-        solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id, Solicitud.tecnico_id == user.id).first()
-        if not solicitud or solicitud.estado not in ['asignada', 'pendiente']:
+        # Permitir aceptar solicitudes pendientes (sin técnico) o las asignadas a él
+        solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
+        if not solicitud or solicitud.estado not in ['pendiente', 'asignada']:
             db.close(); raise HTTPException(404, "Solicitud no válida")
-        solicitud.estado = 'aceptada'; solicitud.tecnico_id = user.id
+        if solicitud.tecnico_id is not None and solicitud.tecnico_id != user.id:
+            db.close(); raise HTTPException(403, "Esta solicitud ya tiene otro técnico")
+        # Si está pendiente, asignarla a este técnico
+        if solicitud.estado == 'pendiente':
+            solicitud.tecnico_id = user.id
+        solicitud.estado = 'aceptada'
         solicitud.fecha_aceptacion = datetime.now(timezone.utc)
-        user.estado = 'ocupado'; db.commit(); db.close()
+        user.estado = 'ocupado'
+        db.commit()
+        db.close()
         return {"mensaje": "Solicitud aceptada"}
     except Exception as e:
         raise HTTPException(500, f"Error al aceptar: {str(e)}")
@@ -513,9 +528,12 @@ def jornada_activa(user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(500, f"Error: {str(e)}")
 
-# ---------- NUEVOS ENDPOINTS DE KEYSHELL ----------
+# ---------- NUEVOS ENDPOINTS ----------
 @app.get("/parqueaderos/{parqueadero_id}/reportes")
 def reportes_por_parqueadero(parqueadero_id: int, user=Depends(get_current_user)):
+    """
+    Endpoint de Keyshell: reportes finalizados del técnico en ese parqueadero.
+    """
     if user.rol != 'tecnico':
         raise HTTPException(403, "No autorizado")
     db = SessionLocal()
@@ -535,18 +553,32 @@ def reportes_por_parqueadero(parqueadero_id: int, user=Depends(get_current_user)
         "maquina_nombre": next((m.nombre for m in maquinas if m.id == r.maquina_id), "")
     } for r in reportes]
 
+@app.get("/tecnico/mis_reportes")
+def mis_reportes_tecnico(parqueadero_id: int, user=Depends(get_current_user)):
+    """
+    Reportes creados por el técnico (origen='tecnico') en el parqueadero, sin importar estado.
+    """
+    if user.rol != 'tecnico':
+        raise HTTPException(403, "No autorizado")
+    db = SessionLocal()
+    reportes = db.query(Solicitud).filter(
+        Solicitud.cliente_id == user.id,  # el técnico "cliente" de su propio reporte
+        Solicitud.origen == 'tecnico',
+        Solicitud.maquina_id.in_(
+            db.query(Maquina.id).filter(Maquina.parqueadero_id == parqueadero_id)
+        )
+    ).order_by(Solicitud.fecha_creacion.desc()).all()
+    db.close()
+    return [{"id": r.id, "descripcion": r.descripcion, "estado": r.estado, "tipo": r.tipo} for r in reportes]
+
 @app.post("/admin/insertar_datos_prueba")
 def insertar_datos_prueba(user=Depends(get_current_user)):
     if user.rol not in ["lider", "coordinador"]:
         raise HTTPException(403, "No autorizado")
     db = SessionLocal()
-    
-    # Limpiar datos antiguos
     db.query(Maquina).delete()
     db.query(Parqueadero).delete()
     db.commit()
-    
-    # Crear parqueaderos
     p1 = Parqueadero(nombre="Parqueadero Centro", direccion="Calle 19 # 5-30", lat=4.598, lon=-74.071, ciudad="Bogotá")
     p2 = Parqueadero(nombre="Centro Comercial Unicentro", direccion="Cra 68 # 90-12", lat=4.676, lon=-74.077, ciudad="Bogotá")
     p3 = Parqueadero(nombre="Parqueadero El Dorado", direccion="Av. El Dorado", lat=4.701, lon=-74.146, ciudad="Bogotá")
@@ -554,7 +586,6 @@ def insertar_datos_prueba(user=Depends(get_current_user)):
     p5 = Parqueadero(nombre="Parqueadero Salitre", direccion="Calle 24 # 60-10", lat=4.653, lon=-74.104, ciudad="Bogotá")
     db.add_all([p1, p2, p3, p4, p5])
     db.commit()
-    
     config = [
         {"validador_tipo": "Tarjeta", "dispensador_tipo": "Tarjeta"},
         {"validador_tipo": "QR", "dispensador_tipo": "Papel"},
@@ -562,7 +593,6 @@ def insertar_datos_prueba(user=Depends(get_current_user)):
         {"validador_tipo": "QR", "dispensador_tipo": "Tarjeta"},
         {"validador_tipo": "Tarjeta", "dispensador_tipo": "Tarjeta"},
     ]
-    
     maquinas = []
     for idx, p in enumerate([p1, p2, p3, p4, p5]):
         i = idx + 1
@@ -579,7 +609,6 @@ def insertar_datos_prueba(user=Depends(get_current_user)):
         maquinas.append(Maquina(codigo_qr=f"CAJ_{i:03d}", nombre=f"Cajero Automático {i}", tipo="Cajero", parqueadero_id=p.id))
     db.add_all(maquinas)
     db.commit()
-    
     num_parques = db.query(Parqueadero).count()
     num_maquinas = db.query(Maquina).count()
     db.close()
