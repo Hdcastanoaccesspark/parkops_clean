@@ -17,6 +17,7 @@ dependencies:
   signature: ^5.4.0
   mobile_scanner: ^5.2.3
   intl: ^0.18.0
+  url_launcher: ^6.1.0   # <-- NUEVA DEPENDENCIA
 
 dev_dependencies:
   flutter_test:

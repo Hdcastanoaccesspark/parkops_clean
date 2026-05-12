@@ -278,6 +278,22 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (res.statusCode == 200) {
       _cargarVisitasAsignadas();
       _msg('Solicitud aceptada', err: false);
+      // Obtener el parqueadero_id de la solicitud
+      final solicitud = _visitasAsignadas.firstWhere((s) => s['id'] == id);
+      final parqueaderoId = solicitud['parqueadero_id'];
+      if (parqueaderoId != null && _parqueaderos.isNotEmpty) {
+        final parqueadero = _parqueaderos.firstWhere(
+          (p) => p['id'] == parqueaderoId,
+        );
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => MenuParqueaderoScreen(parqueadero: parqueadero),
+          ),
+        );
+        _cargarParqueaderos();
+        _cargarVisitasAsignadas();
+      }
     } else
       _msg('Error al aceptar: ${res.statusCode}');
   }

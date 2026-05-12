@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signature/signature.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import 'correctivo_presencial_screen.dart';
 import 'correctivo_remoto_screen.dart';
@@ -22,6 +23,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
   bool _cargando = true;
   int? _solicitudActivaId;
   List<dynamic> _misReportes = [];
+  List<dynamic> _reportesParqueadero = [];
   bool _cargandoReportes = false;
 
   @override
@@ -29,6 +31,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
     super.initState();
     _cargarMaquinas();
     _cargarMisReportes();
+    _cargarReportesParqueadero();
   }
 
   Future<void> _cargarMaquinas() async {
@@ -56,7 +59,6 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
   }
 
   Future<void> _cargarMisReportes() async {
-    setState(() => _cargandoReportes = true);
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
     try {
@@ -73,6 +75,27 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
       }
     } catch (e) {
       print('Error cargando mis reportes: $e');
+    }
+  }
+
+  Future<void> _cargarReportesParqueadero() async {
+    setState(() => _cargandoReportes = true);
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    try {
+      final res = await http.get(
+        Uri.parse(
+          '$API_BASE_URL/parqueaderos/${widget.parqueadero['id']}/reportes',
+        ),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        setState(() {
+          _reportesParqueadero = jsonDecode(res.body);
+        });
+      }
+    } catch (e) {
+      print('Error cargando reportes del parqueadero: $e');
     }
     setState(() => _cargandoReportes = false);
   }
@@ -110,6 +133,16 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
     return result ?? false;
   }
 
+  Future<void> _descargarPdf(int solicitudId) async {
+    final url = '$API_BASE_URL/reporte/$solicitudId/pdf';
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      _msg('No se pudo abrir el enlace');
+    }
+  }
+
   Future<void> _correctivo() async {
     final tipo = await showDialog<String>(
       context: context,
@@ -141,6 +174,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
       if (result is int) {
         setState(() => _solicitudActivaId = result);
         _cargarMisReportes();
+        _cargarReportesParqueadero();
       }
       return;
     }
@@ -181,6 +215,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
     if (result is int) {
       setState(() => _solicitudActivaId = result);
       _cargarMisReportes();
+      _cargarReportesParqueadero();
     }
   }
 
@@ -201,6 +236,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
     if (result is int) {
       setState(() => _solicitudActivaId = result);
       _cargarMisReportes();
+      _cargarReportesParqueadero();
     }
   }
 
@@ -234,6 +270,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
         if (result is int) {
           setState(() => _solicitudActivaId = result);
           _cargarMisReportes();
+          _cargarReportesParqueadero();
         }
       } else {
         _msg('No encontrada');
@@ -342,6 +379,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
         _solicitudActivaId = null;
       });
       _cargarMisReportes();
+      _cargarReportesParqueadero();
     } else {
       _msg('Error al cerrar solicitud: ${res.statusCode}');
     }
@@ -403,7 +441,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
                     ),
                     const Divider(height: 30),
                     const Text(
-                      'Mis reportes en este parqueadero',
+                      'Reportes del Parqueadero',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -411,16 +449,57 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
                     ),
                     _cargandoReportes
                         ? const CircularProgressIndicator()
-                        : _misReportes.isEmpty
-                        ? const Text('No hay reportes aún')
+                        : _misReportes.isEmpty && _reportesParqueadero.isEmpty
+                        ? const Text('No hay reportes disponibles')
                         : Expanded(
                             child: ListView.builder(
-                              itemCount: _misReportes.length,
-                              itemBuilder: (_, i) => ListTile(
-                                title: Text(_misReportes[i]['tipo']),
-                                subtitle: Text(_misReportes[i]['descripcion']),
-                                trailing: Text(_misReportes[i]['estado']),
-                              ),
+                              itemCount:
+                                  _misReportes.length +
+                                  _reportesParqueadero.length,
+                              itemBuilder: (_, i) {
+                                if (i < _misReportes.length) {
+                                  final reporte = _misReportes[i];
+                                  return ListTile(
+                                    title: Text('Propio: ${reporte['tipo']}'),
+                                    subtitle: Text(
+                                      reporte['descripcion'] ?? '',
+                                    ),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(reporte['estado']),
+                                        if (reporte['estado'] == 'finalizada')
+                                          IconButton(
+                                            icon: Icon(
+                                              Icons.download,
+                                              color: Colors.blue,
+                                            ),
+                                            onPressed: () =>
+                                                _descargarPdf(reporte['id']),
+                                          ),
+                                      ],
+                                    ),
+                                  );
+                                } else {
+                                  final reporte =
+                                      _reportesParqueadero[i -
+                                          _misReportes.length];
+                                  return ListTile(
+                                    title: Text('${reporte['tipo']}'),
+                                    subtitle: Text(
+                                      reporte['descripcion'] ?? '',
+                                    ),
+                                    trailing: IconButton(
+                                      icon: Icon(
+                                        Icons.download,
+                                        color: Colors.blue,
+                                      ),
+                                      onPressed: () =>
+                                          _descargarPdf(reporte['id']),
+                                    ),
+                                  );
+                                }
+                              },
                             ),
                           ),
                   ],

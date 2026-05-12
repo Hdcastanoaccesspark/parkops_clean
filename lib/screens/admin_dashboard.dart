@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -184,6 +185,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
       _msg('Error al cancelar');
   }
 
+  Future<void> _descargarPdf(int solicitudId) async {
+    final url = '$API_BASE_URL/reporte/$solicitudId/pdf';
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      _msg('No se pudo abrir el enlace');
+    }
+  }
+
   void _msg(String m) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
@@ -258,6 +269,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
                           IconButton(
                             icon: const Icon(Icons.delete, color: Colors.red),
                             onPressed: () => _cancelarSolicitud(s),
+                          ),
+                        if (s['estado'] == 'finalizada')
+                          IconButton(
+                            icon: const Icon(
+                              Icons.download,
+                              color: Colors.green,
+                            ),
+                            onPressed: () => _descargarPdf(s['id']),
                           ),
                       ],
                     ),
