@@ -8,9 +8,19 @@ import bcrypt
 import jwt
 import math
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ----- Configuración de base de datos -----
-engine = create_engine('sqlite:///parkops.db', connect_args={'check_same_thread': False})
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///parkops.db")
+
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={'check_same_thread': False})
+else:
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
@@ -30,14 +40,14 @@ class User(Base):
 class Solicitud(Base):
     __tablename__ = 'solicitudes'
     id = Column(Integer, primary_key=True)
-    cliente_id = Column(Integer)
+    cliente_id = Column(Integer, ForeignKey('users.id'))
     descripcion = Column(Text)
     lat = Column(Float)
     lon = Column(Float)
     tipo = Column(String)
     estado = Column(String)
-    tecnico_id = Column(Integer, nullable=True)
-    maquina_id = Column(Integer, nullable=True)
+    tecnico_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    maquina_id = Column(Integer, ForeignKey('maquinas.id'), nullable=True)
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     fecha_asignacion = Column(DateTime, nullable=True)
     fecha_aceptacion = Column(DateTime, nullable=True)
@@ -50,7 +60,7 @@ class Solicitud(Base):
 class Jornada(Base):
     __tablename__ = 'jornadas'
     id = Column(Integer, primary_key=True)
-    tecnico_id = Column(Integer)
+    tecnico_id = Column(Integer, ForeignKey('users.id'))
     inicio = Column(DateTime)
     fin = Column(DateTime, nullable=True)
     lat_inicio = Column(Float)
@@ -78,7 +88,7 @@ class Maquina(Base):
     lon = Column(Float, nullable=True)
 
 # Recrear tablas (esto puede borrar datos existentes, pero para desarrollo está bien)
-Base.metadata.drop_all(bind=engine)   # ❗OPCIONAL: elimina tablas anteriores (cuidado con datos)
+# Base.metadata.drop_all(bind=engine)   # ❗OPCIONAL: elimina tablas anteriores (cuidado con datos)
 Base.metadata.create_all(bind=engine)
 
 # ----- Crear usuarios de prueba (si no existen) -----
