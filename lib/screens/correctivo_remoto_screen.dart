@@ -16,16 +16,16 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
   final _desc = TextEditingController(), _falla = TextEditingController();
   List<String> _fotosAntes = [], _fotosDespues = [], _fotosCotizacion = [];
   bool _enviando = false, _requiereCotizacion = false;
-  String _cotizacionRepuesto = '';
+  final String _cotizacionRepuesto = '';
 
   Future<void> _tomarFoto(String cat, bool useCamera) async {
     final source = useCamera ? ImageSource.camera : ImageSource.gallery;
     final f = await ImagePicker().pickImage(source: source);
     if (f != null) {
       final b = await f.readAsBytes();
-      if (cat == 'antes')
+      if (cat == 'antes') {
         _fotosAntes.add(base64Encode(b));
-      else if (cat == 'despues')
+      } else if (cat == 'despues')
         _fotosDespues.add(base64Encode(b));
       else
         _fotosCotizacion.add(base64Encode(b));
@@ -176,8 +176,9 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
         final data = jsonDecode(res.body);
         _msg('Reporte enviado', err: false);
         Navigator.pop(context, data['solicitud_id']);
-      } else
+      } else {
         _msg('Error: ${res.statusCode}');
+      }
     } catch (e) {
       _msg('Error: $e');
     } finally {

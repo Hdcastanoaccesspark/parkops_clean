@@ -30,24 +30,27 @@ class _PerfilTecnicoScreenState extends State<PerfilTecnicoScreen> {
         Uri.parse('$API_BASE_URL/usuarios/$userId'),
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (res.statusCode == 200)
+      if (res.statusCode == 200) {
         setState(() {
           _perfil = jsonDecode(res.body);
           _cargando = false;
         });
-      else
+      } else {
         setState(() => _cargando = false);
+      }
     } catch (e) {
       setState(() => _cargando = false);
     }
   }
 
   Widget _buildFoto() {
-    if (_perfil == null)
+    if (_perfil == null) {
       return const Icon(Icons.person, size: 50, color: Colors.grey);
+    }
     final fotoStr = _perfil!['foto_perfil'] as String?;
-    if (fotoStr == null || fotoStr.isEmpty)
+    if (fotoStr == null || fotoStr.isEmpty) {
       return const Icon(Icons.person, size: 50, color: Colors.grey);
+    }
     try {
       return ClipOval(
         child: Image.memory(
@@ -55,7 +58,7 @@ class _PerfilTecnicoScreenState extends State<PerfilTecnicoScreen> {
           width: 100,
           height: 100,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) =>
+          errorBuilder: (_, _, _) =>
               const Icon(Icons.person, size: 50, color: Colors.grey),
         ),
       );

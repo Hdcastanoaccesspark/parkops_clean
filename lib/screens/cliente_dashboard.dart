@@ -129,8 +129,8 @@ class ClienteDashboardState extends State<ClienteDashboard> {
         );
         if (ok == true) _cargarSolicitudes();
       },
-      child: const Icon(Icons.add),
       backgroundColor: const Color(0xFFE30613),
+      child: const Icon(Icons.add),
     ),
   );
 }
@@ -313,7 +313,7 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            value: _tipo,
+            initialValue: _tipo,
             decoration: const InputDecoration(
               labelText: 'Tipo',
               border: OutlineInputBorder(),

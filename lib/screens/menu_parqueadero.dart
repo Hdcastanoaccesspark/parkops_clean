@@ -21,15 +21,17 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
   List<dynamic> _maquinas = [];
   bool _cargando = true;
   int? _solicitudActivaId;
+  List<dynamic> _misReportes = [];
+  bool _cargandoReportes = false;
 
   @override
   void initState() {
     super.initState();
     _cargarMaquinas();
+    _cargarMisReportes();
   }
 
   Future<void> _cargarMaquinas() async {
-    print('🔄 Cargando máquinas...');
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
     try {
@@ -44,15 +46,35 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
           _maquinas = jsonDecode(res.body);
           _cargando = false;
         });
-        print('✅ Máquinas cargadas: ${_maquinas.length}');
       } else {
         setState(() => _cargando = false);
-        print('❌ Error al cargar máquinas: ${res.statusCode}');
       }
     } catch (e) {
-      print('❌ Excepción al cargar máquinas: $e');
+      print('Error cargando máquinas: $e');
       setState(() => _cargando = false);
     }
+  }
+
+  Future<void> _cargarMisReportes() async {
+    setState(() => _cargandoReportes = true);
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    try {
+      final res = await http.get(
+        Uri.parse(
+          '$API_BASE_URL/tecnico/mis_reportes?parqueadero_id=${widget.parqueadero['id']}',
+        ),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        setState(() {
+          _misReportes = jsonDecode(res.body);
+        });
+      }
+    } catch (e) {
+      print('Error cargando mis reportes: $e');
+    }
+    setState(() => _cargandoReportes = false);
   }
 
   void _msg(String m, {bool err = true}) {
@@ -64,8 +86,31 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
     );
   }
 
+  Future<bool> _onWillPop() async {
+    if (_solicitudActivaId == null) return true;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Salir del parqueadero'),
+        content: const Text(
+          'Tiene un reporte en curso. Si sale, perderá los cambios no guardados. ¿Desea salir?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Salir'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   Future<void> _correctivo() async {
-    print('🔵 Botón Correctivo presionado');
     final tipo = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -83,30 +128,24 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
         ],
       ),
     );
-    print('Tipo seleccionado: $tipo');
     if (tipo == null) return;
 
     if (tipo == 'remoto') {
-      try {
-        print('Navegando a CorrectivoRemotoScreen...');
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-                CorrectivoRemotoScreen(parqueadero: widget.parqueadero),
-          ),
-        );
-        if (result is int) _solicitudActivaId = result;
-        print('Resultado de remoto: $result');
-      } catch (e) {
-        print('❌ Error navegando a remoto: $e');
-        _msg('Error al abrir la pantalla');
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              CorrectivoRemotoScreen(parqueadero: widget.parqueadero),
+        ),
+      );
+      if (result is int) {
+        setState(() => _solicitudActivaId = result);
+        _cargarMisReportes();
       }
       return;
     }
 
     if (_maquinas.isEmpty) {
-      print('No hay máquinas disponibles');
       _msg('No hay máquinas disponibles');
       return;
     }
@@ -128,151 +167,268 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
         ),
       ),
     );
-    if (maq == null) {
-      print('No se seleccionó máquina');
-      return;
-    }
+    if (maq == null) return;
 
-    try {
-      print(
-        'Navegando a CorrectivoPresencialScreen con máquina: ${maq['nombre']}',
-      );
-      final result = await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => CorrectivoPresencialScreen(
-            parqueadero: widget.parqueadero,
-            maquina: maq,
-          ),
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CorrectivoPresencialScreen(
+          parqueadero: widget.parqueadero,
+          maquina: maq,
         ),
-      );
-      if (result is int) _solicitudActivaId = result;
-      print('Resultado de presencial: $result');
-    } catch (e) {
-      print('❌ Error navegando a presencial: $e');
-      _msg('Error al abrir la pantalla');
+      ),
+    );
+    if (result is int) {
+      setState(() => _solicitudActivaId = result);
+      _cargarMisReportes();
     }
   }
 
   Future<void> _preventivo() async {
-    print('🟢 Botón Preventivo presionado');
     if (_maquinas.isEmpty) {
-      print('No hay máquinas disponibles');
       _msg('No hay máquinas disponibles');
       return;
     }
-    try {
-      print('Navegando a PreventivoScreen...');
-      final result = await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => PreventivoScreen(
-            parqueadero: widget.parqueadero,
-            maquinas: List<Map<String, dynamic>>.from(_maquinas),
-          ),
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PreventivoScreen(
+          parqueadero: widget.parqueadero,
+          maquinas: List<Map<String, dynamic>>.from(_maquinas),
         ),
-      );
-      if (result is int) _solicitudActivaId = result;
-      print('Resultado de preventivo: $result');
-    } catch (e) {
-      print('❌ Error navegando a preventivo: $e');
-      _msg('Error al abrir la pantalla');
+      ),
+    );
+    if (result is int) {
+      setState(() => _solicitudActivaId = result);
+      _cargarMisReportes();
     }
   }
 
   Future<void> _leerQR() async {
-    print('🔴 Botón Leer QR presionado');
-    try {
-      final code = await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const QrScannerScreen()),
+    final code = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const QrScannerScreen()),
+    );
+    if (code != null) {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      final res = await http.get(
+        Uri.parse('$API_BASE_URL/maquinas/qr/$code'),
+        headers: {'Authorization': 'Bearer $token'},
       );
-      print('Código QR escaneado: $code');
-      if (code != null) {
-        final prefs = await SharedPreferences.getInstance();
-        final token = prefs.getString('token');
-        final res = await http.get(
-          Uri.parse('$API_BASE_URL/maquinas/qr/$code'),
-          headers: {'Authorization': 'Bearer $token'},
-        );
-        if (res.statusCode == 200) {
-          final maq = jsonDecode(res.body);
-          if (maq['parqueadero_id'] != widget.parqueadero['id']) {
-            _msg('Máquina de otro parqueadero');
-            return;
-          }
-          print('Navegando a CorrectivoPresencialScreen con QR...');
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => CorrectivoPresencialScreen(
-                parqueadero: widget.parqueadero,
-                maquina: maq,
-              ),
-            ),
-          );
-          if (result is int) _solicitudActivaId = result;
-        } else {
-          _msg('No encontrada');
+      if (res.statusCode == 200) {
+        final maq = jsonDecode(res.body);
+        if (maq['parqueadero_id'] != widget.parqueadero['id']) {
+          _msg('Máquina de otro parqueadero');
+          return;
         }
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CorrectivoPresencialScreen(
+              parqueadero: widget.parqueadero,
+              maquina: maq,
+            ),
+          ),
+        );
+        if (result is int) {
+          setState(() => _solicitudActivaId = result);
+          _cargarMisReportes();
+        }
+      } else {
+        _msg('No encontrada');
       }
-    } catch (e) {
-      print('❌ Error en lectura QR: $e');
-      _msg('Error al abrir la pantalla');
     }
   }
 
   Future<void> _finalizar() async {
-    // ... (código de finalizar sin cambios)
-  }
+    if (_solicitudActivaId == null) {
+      _msg('No hay un reporte activo para finalizar');
+      return;
+    }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Column(
-        children: [
-          Row(
-            children: [
-              Image.network('https://i.imgur.com/dpfS4Xw.png', height: 40),
-              const SizedBox(width: 8),
-              const Text('Menú del Parqueadero'),
-            ],
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Finalizar labor'),
+        content: const Text(
+          '¿Está seguro de que desea finalizar la labor? Se requerirá la firma del cliente.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
           ),
-          Text(
-            widget.parqueadero['nombre'],
-            style: const TextStyle(fontSize: 14),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continuar'),
           ),
         ],
       ),
-      backgroundColor: const Color(0xFF004A99),
-    ),
-    body: _cargando
-        ? const Center(child: CircularProgressIndicator())
-        : Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _boton('Mantenimiento Correctivo', Icons.build, _correctivo),
-                const SizedBox(height: 12),
-                _boton(
-                  'Mantenimiento Preventivo',
-                  Icons.checklist,
-                  _preventivo,
+    );
+    if (confirm != true) return;
+
+    final SignatureController ctrl = SignatureController(
+      penStrokeWidth: 2,
+      penColor: Colors.black,
+    );
+    final firmado = await showGeneralDialog<Uint8List>(
+      context: context,
+      barrierDismissible: false,
+      pageBuilder: (ctx, anim, secAnim) => Scaffold(
+        backgroundColor: Colors.black54,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: Container(
+                  color: Colors.white,
+                  margin: const EdgeInsets.all(16),
+                  child: Signature(controller: ctrl),
                 ),
-                const SizedBox(height: 12),
-                _boton('Leer QR de máquina', Icons.qr_code_scanner, _leerQR),
-                const SizedBox(height: 12),
-                _boton(
-                  'Finalizar labor (firma obligatoria)',
-                  Icons.draw,
-                  _finalizar,
-                  Colors.green,
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
                 ),
-              ],
-            ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => ctrl.clear(),
+                      icon: const Icon(Icons.undo),
+                      label: const Text('Borrar'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey,
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        if (ctrl.isEmpty) {
+                          _msg('Debe capturar la firma');
+                          return;
+                        }
+                        final signatureBytes = await ctrl.toPngBytes();
+                        Navigator.pop(ctx, signatureBytes);
+                      },
+                      icon: const Icon(Icons.check),
+                      label: const Text('Confirmar'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-  );
+        ),
+      ),
+    );
+    if (firmado == null) return;
+
+    final firmaBase64 = base64Encode(firmado);
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    final res = await http.post(
+      Uri.parse('$API_BASE_URL/tecnico/cerrar_solicitud/$_solicitudActivaId'),
+      headers: {'Authorization': 'Bearer $token'},
+      body: {'items': 'Reporte completado', 'firma': firmaBase64},
+    );
+    if (res.statusCode == 200) {
+      _msg('Labor finalizada. Reporte PDF generado.', err: false);
+      setState(() {
+        _solicitudActivaId = null;
+      });
+      _cargarMisReportes();
+    } else {
+      _msg('Error al cerrar solicitud: ${res.statusCode}');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Column(
+            children: [
+              Row(
+                children: [
+                  Image.network('https://i.imgur.com/dpfS4Xw.png', height: 40),
+                  const SizedBox(width: 8),
+                  const Text('Menú del Parqueadero'),
+                ],
+              ),
+              Text(
+                widget.parqueadero['nombre'],
+                style: const TextStyle(fontSize: 14),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF004A99),
+        ),
+        body: _cargando
+            ? const Center(child: CircularProgressIndicator())
+            : Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _boton(
+                      'Mantenimiento Correctivo',
+                      Icons.build,
+                      _correctivo,
+                    ),
+                    const SizedBox(height: 12),
+                    _boton(
+                      'Mantenimiento Preventivo',
+                      Icons.checklist,
+                      _preventivo,
+                    ),
+                    const SizedBox(height: 12),
+                    _boton(
+                      'Leer QR de máquina',
+                      Icons.qr_code_scanner,
+                      _leerQR,
+                    ),
+                    const SizedBox(height: 12),
+                    _boton(
+                      'Finalizar labor (firma obligatoria)',
+                      Icons.draw,
+                      _finalizar,
+                      Colors.green,
+                    ),
+                    const Divider(height: 30),
+                    const Text(
+                      'Mis reportes en este parqueadero',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    _cargandoReportes
+                        ? const CircularProgressIndicator()
+                        : _misReportes.isEmpty
+                        ? const Text('No hay reportes aún')
+                        : Expanded(
+                            child: ListView.builder(
+                              itemCount: _misReportes.length,
+                              itemBuilder: (_, i) => ListTile(
+                                title: Text(_misReportes[i]['tipo']),
+                                subtitle: Text(_misReportes[i]['descripcion']),
+                                trailing: Text(_misReportes[i]['estado']),
+                              ),
+                            ),
+                          ),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
 
   Widget _boton(
     String texto,

@@ -62,11 +62,12 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
       ),
     );
     if (c == true) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _backupRealizado = true;
           _preguntandoBackup = false;
         });
+      }
       return;
     }
     final motivo = await showDialog<String>(
@@ -89,11 +90,12 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
       ),
     );
     if (motivo != null && motivo.isNotEmpty) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _backupRealizado = true;
           _preguntandoBackup = false;
         });
+      }
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -115,9 +117,9 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
     final f = await ImagePicker().pickImage(source: ImageSource.camera);
     if (f != null) {
       final b = await f.readAsBytes();
-      if (cat == 'antes')
+      if (cat == 'antes') {
         _fotosAntes.add(base64Encode(b));
-      else if (cat == 'despues')
+      } else if (cat == 'despues')
         _fotosDespues.add(base64Encode(b));
       else
         _fotosCotizacion.add(base64Encode(b));
@@ -267,11 +269,12 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
           ),
         ),
       );
-      if (rep != null && rep.isNotEmpty)
+      if (rep != null && rep.isNotEmpty) {
         setState(() {
           _requiereCotizacion = true;
           _cotizacionRepuesto = rep;
         });
+      }
     }
   }
 
@@ -336,8 +339,9 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
         final data = jsonDecode(res.body);
         _msg('Reporte guardado', err: false);
         Navigator.pop(context, data['solicitud_id']); // devuelve el ID
-      } else
+      } else {
         _msg('Error: ${res.statusCode}');
+      }
     } catch (e) {
       _msg('Error: $e');
     } finally {
@@ -355,12 +359,14 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_preguntandoBackup)
+    if (_preguntandoBackup) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    if (!_backupRealizado)
+    }
+    if (!_backupRealizado) {
       return const Scaffold(
         body: Center(child: Text('Debes confirmar el backup para continuar.')),
       );
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('Mantenimiento Preventivo')),
       body: _mostrandoChecklist
