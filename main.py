@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta, timezone
-import bcrypt, jwt, math, os, traceback, base64
+import bcrypt, jwt, math, os, traceback, base64, tempfile, urllib.request, re, qrcode
 from fpdf import FPDF
 from dotenv import load_dotenv
 import smtplib
@@ -179,54 +179,282 @@ def generar_pdf(solicitud_id: int):
         raise HTTPException(404, "Solicitud no encontrada")
     cliente = db.query(User).filter(User.id == solicitud.cliente_id).first()
     tecnico = db.query(User).filter(User.id == solicitud.tecnico_id).first() if solicitud.tecnico_id else None
+    parqueadero = None
+    if solicitud.maquina_id:
+        maquina = db.query(Maquina).filter(Maquina.id == solicitud.maquina_id).first()
+        if maquina:
+            parqueadero = db.query(Parqueadero).filter(Parqueadero.id == maquina.parqueadero_id).first()
     db.close()
 
-    pdf = FPDF()
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="ParkOps - Reporte de Servicio", ln=True, align='C')
-    pdf.ln(10)
-    pdf.set_font("Arial", size=10)
-    pdf.cell(200, 8, txt=f"ID Solicitud: {solicitud_id}", ln=True)
-    pdf.cell(200, 8, txt=f"Cliente: {cliente.nombre if cliente else 'N/A'}", ln=True)
-    pdf.cell(200, 8, txt=f"Tecnico: {tecnico.nombre if tecnico else 'N/A'}", ln=True)
-    pdf.cell(200, 8, txt=f"Tipo: {solicitud.tipo}", ln=True)
-    pdf.cell(200, 8, txt=f"Descripcion: {solicitud.descripcion[:150]}...", ln=True)
-    pdf.cell(200, 8, txt=f"Estado: {solicitud.estado}", ln=True)
 
+    azul = (0, 74, 153)
+    rojo = (227, 6, 19)
+    gris_claro = (240, 240, 240)
+    gris_texto = (100, 100, 100)
+    blanco = (255, 255, 255)
+
+    # ---------- HEADER AZUL ----------
+    pdf.set_fill_color(*azul)
+    pdf.rect(0, 0, 210, 45, 'F')
+
+    # Logo ParkOPS (izquierda)
+    logo_parkops_path = None
+    try:
+        logo_url = 'https://i.imgur.com/dpfS4Xw.png'
+        response = urllib.request.urlopen(logo_url)
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+            tmp.write(response.read())
+            logo_parkops_path = tmp.name
+    except Exception as e:
+        print(f"No se pudo descargar logo ParkOPS: {e}")
+
+    if logo_parkops_path:
+        pdf.image(logo_parkops_path, x=10, y=5, w=30)
+        os.unlink(logo_parkops_path)
+
+    # Logo Accespark (derecha) — AÑADE AQUÍ TU LOGO
+    # Descarga la imagen de la misma forma o coméntala si no tienes URL
+    # logo_accespark_path = None
+    # try:
+    #     url_accespark = 'https://ejemplo.com/logo_accespark.png'
+    #     response = urllib.request.urlopen(url_accespark)
+    #     with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+    #         tmp.write(response.read())
+    #         logo_accespark_path = tmp.name
+    # except Exception as e:
+    #     print(f"No se pudo descargar logo Accespark: {e}")
+    # if logo_accespark_path:
+    #     pdf.image(logo_accespark_path, x=170, y=5, w=30)
+    #     os.unlink(logo_accespark_path)
+
+    # Título y metadatos
+    pdf.set_y(10)
+    pdf.set_x(50)
+    pdf.set_font('Helvetica', 'B', 20)
+    pdf.set_text_color(*blanco)
+    pdf.cell(0, 10, txt='Reporte de Servicio', ln=True)
+    pdf.set_x(50)
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(0, 6, txt=f'ID Servicio: {solicitud_id}  |  Tipo: {solicitud.tipo}  |  Estado: {solicitud.estado}', ln=True)
+
+    pdf.ln(20)
+
+    # Datos generales
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.set_text_color(*azul)
+    pdf.cell(0, 8, txt='DATOS DEL SERVICIO', ln=True)
+    pdf.set_draw_color(*azul)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(4)
+
+    pdf.set_font('Helvetica', '', 10)
+    pdf.set_text_color(0, 0, 0)
+    ancho_col = 60
+    def campo(label, valor):
+        pdf.set_font('Helvetica', 'B', 10)
+        pdf.cell(ancho_col, 7, txt=label)
+        pdf.set_font('Helvetica', '', 10)
+        pdf.cell(0, 7, txt=str(valor), ln=True)
+
+    campo('Cliente:', cliente.nombre if cliente else 'N/A')
+    campo('Tecnico:', tecnico.nombre if tecnico else 'N/A')
+    campo('Parqueadero:', parqueadero.nombre if parqueadero else 'No especificado')
+    campo('Direccion:', parqueadero.direccion if parqueadero else '')
+    campo('Fecha creacion:', solicitud.fecha_creacion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_creacion else '')
+    campo('Fecha cierre:', solicitud.fecha_fin.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_fin else '')
+    if solicitud.fecha_fin and solicitud.fecha_inicio:
+        duracion = solicitud.fecha_fin - solicitud.fecha_inicio
+        horas = duracion.total_seconds() / 3600
+        campo('Duracion total:', f'{horas:.1f} horas')
+
+    pdf.ln(6)
+
+    # ---------- TIMELINE OPERATIVO ----------
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.set_text_color(*azul)
+    pdf.cell(0, 8, txt='TRAZABILIDAD DEL SERVICIO', ln=True)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(4)
+
+    eventos = [
+        ('Solicitud creada', solicitud.fecha_creacion),
+        ('Tecnico asignado', solicitud.fecha_asignacion),
+        ('Tecnico acepto', solicitud.fecha_aceptacion),
+        ('Inicio de labor', solicitud.fecha_inicio),
+        ('Servicio cerrado', solicitud.fecha_fin),
+    ]
+
+    pdf.set_fill_color(*azul)
+    pdf.set_text_color(*blanco)
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.cell(90, 8, txt='Evento', border=1, fill=True)
+    pdf.cell(95, 8, txt='Fecha / Hora', border=1, fill=True, ln=True)
+
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font('Helvetica', '', 9)
+    fill = False
+    for evento, fecha in eventos:
+        if fill:
+            pdf.set_fill_color(*gris_claro)
+        else:
+            pdf.set_fill_color(*blanco)
+        fecha_str = fecha.strftime('%d/%m/%Y %H:%M') if fecha else 'Pendiente'
+        pdf.cell(90, 7, txt=evento, border=1, fill=True)
+        pdf.cell(95, 7, txt=fecha_str, border=1, fill=True, ln=True)
+        fill = not fill
+
+    pdf.ln(6)
+
+    # ---------- DIAGNÓSTICO ----------
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.set_text_color(*azul)
+    pdf.cell(0, 8, txt='DIAGNOSTICO', ln=True)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(4)
+
+    pdf.set_font('Helvetica', 'B', 10)
+    pdf.cell(0, 7, txt='Descripcion del cliente:', ln=True)
+    pdf.set_font('Helvetica', '', 10)
+    pdf.multi_cell(0, 6, txt=solicitud.descripcion[:500] if solicitud.descripcion else 'Sin descripcion.')
+
+    pdf.ln(2)
+    pdf.set_font('Helvetica', 'B', 10)
+    pdf.cell(0, 7, txt='Informe del tecnico:', ln=True)
+    pdf.set_font('Helvetica', '', 10)
+    items_text = solicitud.items if solicitud.items else 'No se registraron actividades.'
+    pdf.multi_cell(0, 6, txt=items_text[:500])
+
+    pdf.ln(6)
+
+    # ---------- EVIDENCIAS FOTOGRÁFICAS ----------
     if solicitud.fotos:
+        pdf.set_font('Helvetica', 'B', 12)
+        pdf.set_text_color(*azul)
+        pdf.cell(0, 8, txt='EVIDENCIAS FOTOGRAFICAS', ln=True)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(4)
+
         fotos_list = [f for f in solicitud.fotos.split(',') if f]
-        pdf.ln(5)
-        pdf.cell(200, 8, txt="Fotos adjuntas:", ln=True)
-        for idx, foto_base64 in enumerate(fotos_list):
-            try:
-                img_bytes = base64.b64decode(foto_base64)
-                img_path = f"/tmp/foto_{solicitud_id}_{idx}.jpg"
-                with open(img_path, "wb") as f:
-                    f.write(img_bytes)
-                pdf.image(img_path, w=50, h=50)
-                pdf.ln(55)
-                os.remove(img_path)
-            except Exception as e:
-                print(f"Error insertando foto en PDF: {e}")
+        mitad = max(1, len(fotos_list) // 2) if len(fotos_list) > 1 else 0
+        fotos_antes = fotos_list[:mitad] if mitad > 0 else fotos_list[:1]
+        fotos_despues = fotos_list[mitad:] if len(fotos_list) > 1 else []
+        if len(fotos_list) == 1:
+            fotos_antes = fotos_list
+            fotos_despues = []
+
+        def insertar_galeria(label, lista, x_inicial, y_actual):
+            if not lista:
+                return y_actual
+            pdf.set_font('Helvetica', 'B', 10)
+            pdf.set_text_color(0,0,0)
+            pdf.set_xy(x_inicial, y_actual)
+            pdf.cell(0, 7, txt=label, ln=True)
+            y_actual += 7
+            ancho_img = 80
+            alto_img = 60
+            x = x_inicial
+            y = y_actual
+            for idx, foto_base64 in enumerate(lista[:4]):
+                if idx % 2 == 0 and idx != 0:
+                    x = x_inicial
+                    y += alto_img + 4
+                try:
+                    img_bytes = base64.b64decode(foto_base64)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as img_file:
+                        img_file.write(img_bytes)
+                        img_path = img_file.name
+                    pdf.image(img_path, x=x, y=y, w=ancho_img, h=alto_img)
+                    os.unlink(img_path)
+                except Exception as e:
+                    pdf.set_xy(x, y+10)
+                    pdf.set_font('Helvetica', '', 8)
+                    pdf.cell(ancho_img, 5, txt='Error imagen', border=0)
+                x += ancho_img + 4
+            return y + alto_img + 6
+
+        y_pos = pdf.get_y()
+        y_pos = insertar_galeria('ANTES', fotos_antes, 10, y_pos)
+        if fotos_despues:
+            y_pos += 4
+            y_pos = insertar_galeria('DESPUES', fotos_despues, 10, y_pos)
+        pdf.set_y(y_pos + 4)
+
+    # ---------- COTIZACIÓN ----------
+    cotizacion_texto = ''
+    if solicitud.descripcion:
+        match = re.search(r'Cotizaci[oó]n:\s*(.*)', solicitud.descripcion, re.IGNORECASE)
+        if match:
+            cotizacion_texto = match.group(1).strip()
+    if cotizacion_texto:
+        pdf.ln(4)
+        pdf.set_font('Helvetica', 'B', 12)
+        pdf.set_text_color(*azul)
+        pdf.cell(0, 8, txt='COTIZACION', ln=True)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(4)
+        pdf.set_font('Helvetica', '', 10)
+        pdf.multi_cell(0, 6, txt=cotizacion_texto)
+
+    # ---------- FIRMA DIGITAL ----------
+    pdf.ln(8)
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.set_text_color(*azul)
+    pdf.cell(0, 8, txt='FIRMA DE RECIBIDO', ln=True)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(6)
 
     if solicitud.firma:
-        pdf.ln(5)
-        pdf.cell(200, 8, txt="Firma digital registrada", ln=True)
         try:
             firma_bytes = base64.b64decode(solicitud.firma)
-            firma_path = f"/tmp/firma_{solicitud_id}.png"
-            with open(firma_path, "wb") as f:
-                f.write(firma_bytes)
-            pdf.image(firma_path, w=40, h=20)
-            pdf.ln(25)
-            os.remove(firma_path)
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as firma_file:
+                firma_file.write(firma_bytes)
+                firma_path = firma_file.name
+            pdf.image(firma_path, x=10, y=pdf.get_y(), w=60, h=30)
+            os.unlink(firma_path)
+            pdf.set_y(pdf.get_y() + 35)
         except Exception as e:
-            print(f"Error insertando firma en PDF: {e}")
+            pdf.set_font('Helvetica', '', 10)
+            pdf.cell(0, 8, txt='Firma no disponible', ln=True)
+            pdf.ln(4)
+    else:
+        pdf.set_font('Helvetica', '', 10)
+        pdf.cell(0, 8, txt='No se registró firma digital.', ln=True)
+        pdf.ln(4)
 
-    pdf.cell(200, 8, txt=f"Fecha: {solicitud.fecha_creacion} a {solicitud.fecha_fin}", ln=True)
-    pdf.output(f"/tmp/solicitud_{solicitud_id}.pdf")
-    return f"/tmp/solicitud_{solicitud_id}.pdf"
+    pdf.set_font('Helvetica', 'B', 10)
+    pdf.cell(0, 6, txt=f'Cliente: {cliente.nombre if cliente else ""}', ln=True)
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(0, 6, txt=f'Fecha de cierre: {solicitud.fecha_fin.strftime("%d/%m/%Y %H:%M") if solicitud.fecha_fin else ""}', ln=True)
+
+    # ---------- FOOTER CON QR ----------
+    pdf.ln(10)
+    try:
+        qr_url = f'https://parkops-backend.onrender.com/reporte/{solicitud_id}/pdf'
+        qr_img = qrcode.make(qr_url)
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as qr_file:
+            qr_img.save(qr_file.name)
+            qr_path = qr_file.name
+        pdf.image(qr_path, x=150, y=pdf.get_y(), w=25, h=25)
+        os.unlink(qr_path)
+        pdf.set_font('Helvetica', '', 7)
+        pdf.set_xy(150, pdf.get_y()+26)
+        pdf.cell(25, 4, txt='Validar servicio', align='C')
+    except Exception as e:
+        print(f"No se pudo generar QR: {e}")
+
+    pdf.set_y(pdf.get_y() + 35)
+    pdf.set_font('Helvetica', 'I', 8)
+    pdf.set_text_color(*gris_texto)
+    pdf.cell(0, 5, txt=f'Consecutivo: {solicitud_id}  |  Generado automaticamente por ParkOPS', align='C')
+    pdf.ln(4)
+    pdf.cell(0, 5, txt=f'Fecha de generacion: {datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M")}', align='C')
+
+    pdf_path = f'/tmp/solicitud_{solicitud_id}.pdf'
+    pdf.output(pdf_path)
+    return pdf_path
 
 def enviar_correo_pdf(to_email: str, pdf_path: str, solicitud_id: int):
     try:
@@ -274,7 +502,7 @@ def login(email: str = Form(...), password: str = Form(...)):
     token = jwt.encode({"user_id": user.id, "rol": user.rol, "exp": datetime.now(timezone.utc) + timedelta(hours=24)}, SECRET_KEY)
     parqueadero_id = None
     parqueadero_nombre = None
-    if user.rol == 'cliente' and user.parqueadero_id:
+    if user.rol == 'cliente' and user.parqueadero_id is not None:
         db2 = SessionLocal()
         parqueadero = db2.query(Parqueadero).filter(Parqueadero.id == user.parqueadero_id).first()
         db2.close()
@@ -497,7 +725,8 @@ def listar_tecnicos(user=Depends(get_current_user)):
     db = SessionLocal()
     tecnicos = db.query(User).filter(User.rol == 'tecnico').all()
     db.close()
-    return [{"id": t.id, "nombre": t.nombre, "disponible": t.disponible} for t in tecnicos]
+    # AHORA INCLUYE 'disponible' Y 'estado'
+    return [{"id": t.id, "nombre": t.nombre, "disponible": t.disponible, "estado": t.estado} for t in tecnicos]
 
 @app.put("/solicitudes/{solicitud_id}/asignar")
 def asignar_tecnico(solicitud_id: int, tecnico_id: int = Form(...), user=Depends(get_current_user)):
