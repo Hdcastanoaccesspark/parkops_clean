@@ -194,7 +194,6 @@ def generar_pdf(solicitud_id: int):
     pdf.cell(200, 8, txt=f"Descripcion: {solicitud.descripcion[:150]}...", ln=True)
     pdf.cell(200, 8, txt=f"Estado: {solicitud.estado}", ln=True)
 
-    # Intentar insertar fotos
     if solicitud.fotos:
         fotos_list = [f for f in solicitud.fotos.split(',') if f]
         pdf.ln(5)
@@ -205,10 +204,8 @@ def generar_pdf(solicitud_id: int):
                 img_path = f"/tmp/foto_{solicitud_id}_{idx}.jpg"
                 with open(img_path, "wb") as f:
                     f.write(img_bytes)
-                # Insertar imagen (ajustar tamaño)
                 pdf.image(img_path, w=50, h=50)
                 pdf.ln(55)
-                # Eliminar temporal
                 os.remove(img_path)
             except Exception as e:
                 print(f"Error insertando foto en PDF: {e}")
@@ -460,19 +457,21 @@ def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = For
         try:
             pdf_path = generar_pdf(solicitud_id)
             solicitud.pdf_path = pdf_path
+            db.execute("CREATE TABLE IF NOT EXISTS reportes (id SERIAL PRIMARY KEY, solicitud_id INTEGER REFERENCES solicitudes(id) ON DELETE CASCADE, pdf_url TEXT, fecha_creacion TIMESTAMPTZ DEFAULT now())")
             db.execute(
                 "INSERT INTO reportes (solicitud_id, pdf_url) VALUES (:sid, :url)",
                 {"sid": solicitud_id, "url": pdf_path}
             )
-            # Enviar correo al cliente
             cliente_db = db.query(User).filter(User.id == solicitud.cliente_id).first()
             if cliente_db:
-                enviar_correo_pdf("h.castanoaccesspark@gmail.co", pdf_path, solicitud_id)
+                enviar_correo_pdf(cliente_db.email or "h.castanoaccesspark@gmail.co", pdf_path, solicitud_id)
         except Exception as e:
             print(f"Error generando PDF o enviando correo: {e}")
+            traceback.print_exc()
         db.commit(); db.close()
         return {"mensaje": "Servicio finalizado, PDF generado"}
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, f"Error al cerrar solicitud: {str(e)}")
 
 @app.get("/reporte/{solicitud_id}/pdf")
@@ -486,6 +485,7 @@ def descargar_pdf(solicitud_id: int, user=Depends(get_current_user)):
         return FileResponse(solicitud.pdf_path, media_type='application/pdf', filename=f'reporte_{solicitud_id}.pdf')
     pdf_path = generar_pdf(solicitud_id)
     solicitud.pdf_path = pdf_path
+    db.execute("CREATE TABLE IF NOT EXISTS reportes (id SERIAL PRIMARY KEY, solicitud_id INTEGER REFERENCES solicitudes(id) ON DELETE CASCADE, pdf_url TEXT, fecha_creacion TIMESTAMPTZ DEFAULT now())")
     existe = db.execute("SELECT id FROM reportes WHERE solicitud_id = :sid", {"sid": solicitud_id}).first()
     if not existe:
         db.execute("INSERT INTO reportes (solicitud_id, pdf_url) VALUES (:sid, :url)", {"sid": solicitud_id, "url": pdf_path})
