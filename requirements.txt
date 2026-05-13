@@ -7,3 +7,4 @@ pyjwt
 fpdf
 python-dotenv
 psycopg2-binary
+qrcode[pil]       
