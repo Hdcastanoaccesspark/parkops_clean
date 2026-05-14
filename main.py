@@ -203,7 +203,7 @@ def generar_pdf(solicitud_id: int):
     # Logo ParkOPS (izquierda)
     logo_parkops_path = None
     try:
-        logo_url = 'https://i.imgur.com/dpfS4Xw.png'
+        logo_url = 'https://i.imgur.com/QZhOFhX.png'   # ← usa tu nuevo logo
         response = urllib.request.urlopen(logo_url)
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
             tmp.write(response.read())
@@ -215,11 +215,10 @@ def generar_pdf(solicitud_id: int):
         pdf.image(logo_parkops_path, x=10, y=5, w=30)
         os.unlink(logo_parkops_path)
 
-    # Logo Accespark (derecha) — AÑADE AQUÍ TU LOGO
-    # Descarga la imagen de la misma forma o coméntala si no tienes URL
+    # Logo Accespark (derecha) — puedes descomentar y poner tu URL
     # logo_accespark_path = None
     # try:
-    #     url_accespark = 'https://ejemplo.com/logo_accespark.png'
+    #     url_accespark = 'https://i.imgur.com/WyyLdQw.png'
     #     response = urllib.request.urlopen(url_accespark)
     #     with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
     #         tmp.write(response.read())
@@ -677,11 +676,24 @@ def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = For
     try:
         if user.rol != 'tecnico': raise HTTPException(403, "No autorizado")
         db = SessionLocal()
-        solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id, Solicitud.tecnico_id == user.id).first()
-        if not solicitud or solicitud.estado != 'en_proceso':
-            db.close(); raise HTTPException(404, "Solicitud no en proceso")
-        solicitud.estado = 'finalizada'; solicitud.items = items; solicitud.firma = firma
-        solicitud.fecha_fin = datetime.now(timezone.utc); user.estado = 'libre'
+        solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
+        if not solicitud or solicitud.estado in ['finalizada', 'cancelada']:
+            db.close(); raise HTTPException(400, "La solicitud ya fue cerrada o cancelada")
+
+        # Permitir cerrar si el técnico es el asignado, o si es el creador de un reporte propio (origen='tecnico')
+        if solicitud.tecnico_id != user.id and not (solicitud.cliente_id == user.id and solicitud.origen == 'tecnico'):
+            db.close(); raise HTTPException(403, "No tienes permiso para cerrar esta solicitud")
+
+        # Si no tiene técnico asignado (reporte propio), se asigna al técnico que lo está cerrando
+        if solicitud.tecnico_id is None:
+            solicitud.tecnico_id = user.id
+
+        solicitud.estado = 'finalizada'
+        solicitud.items = items
+        solicitud.firma = firma
+        solicitud.fecha_fin = datetime.now(timezone.utc)
+        user.estado = 'libre'
+
         try:
             pdf_path = generar_pdf(solicitud_id)
             solicitud.pdf_path = pdf_path
@@ -696,6 +708,7 @@ def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = For
         except Exception as e:
             print(f"Error generando PDF o enviando correo: {e}")
             traceback.print_exc()
+
         db.commit(); db.close()
         return {"mensaje": "Servicio finalizado, PDF generado"}
     except Exception as e:
@@ -725,7 +738,6 @@ def listar_tecnicos(user=Depends(get_current_user)):
     db = SessionLocal()
     tecnicos = db.query(User).filter(User.rol == 'tecnico').all()
     db.close()
-    # AHORA INCLUYE 'disponible' Y 'estado'
     return [{"id": t.id, "nombre": t.nombre, "disponible": t.disponible, "estado": t.estado} for t in tecnicos]
 
 @app.put("/solicitudes/{solicitud_id}/asignar")
