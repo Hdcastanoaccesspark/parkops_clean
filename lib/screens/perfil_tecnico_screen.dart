@@ -3,6 +3,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
+import '../theme/app_theme.dart';
+import '../widgets/parkops_components.dart';
 
 class PerfilTecnicoScreen extends StatefulWidget {
   const PerfilTecnicoScreen({super.key});
@@ -30,49 +32,22 @@ class _PerfilTecnicoScreenState extends State<PerfilTecnicoScreen> {
         Uri.parse('$API_BASE_URL/usuarios/$userId'),
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (res.statusCode == 200) {
+      if (res.statusCode == 200)
         setState(() {
           _perfil = jsonDecode(res.body);
           _cargando = false;
         });
-      } else {
+      else
         setState(() => _cargando = false);
-      }
     } catch (e) {
       setState(() => _cargando = false);
     }
   }
 
-  Widget _buildFoto() {
-    if (_perfil == null) {
-      return const Icon(Icons.person, size: 50, color: Colors.grey);
-    }
-    final fotoStr = _perfil!['foto_perfil'] as String?;
-    if (fotoStr == null || fotoStr.isEmpty) {
-      return const Icon(Icons.person, size: 50, color: Colors.grey);
-    }
-    try {
-      return ClipOval(
-        child: Image.memory(
-          base64Decode(fotoStr),
-          width: 100,
-          height: 100,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) =>
-              const Icon(Icons.person, size: 50, color: Colors.grey),
-        ),
-      );
-    } catch (e) {
-      return const Icon(Icons.person, size: 50, color: Colors.grey);
-    }
-  }
-
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Mi Perfil'),
-      backgroundColor: const Color(0xFF004A99),
-    ),
+    backgroundColor: AppTheme.darkBackground,
+    appBar: AppBar(title: const Text('Mi Perfil')),
     body: _cargando
         ? const Center(child: CircularProgressIndicator())
         : SingleChildScrollView(
@@ -81,56 +56,52 @@ class _PerfilTecnicoScreenState extends State<PerfilTecnicoScreen> {
               children: [
                 CircleAvatar(
                   radius: 50,
-                  backgroundColor: Colors.grey[300],
-                  child: _buildFoto(),
+                  backgroundColor: AppTheme.darkBorder,
+                  child: const Icon(
+                    Icons.person,
+                    size: 50,
+                    color: AppTheme.textSecondary,
+                  ),
                 ),
                 const SizedBox(height: 16),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.badge),
-                    title: const Text('Nombre'),
-                    subtitle: Text(_perfil?['nombre'] ?? ''),
-                  ),
+                _buildItem(Icons.badge, 'Nombre', _perfil?['nombre'] ?? ''),
+                _buildItem(Icons.email, 'Email', _perfil?['email'] ?? ''),
+                _buildItem(
+                  Icons.health_and_safety,
+                  'EPS',
+                  _perfil?['eps'] ?? 'No registrado',
                 ),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.email),
-                    title: const Text('Email'),
-                    subtitle: Text(_perfil?['email'] ?? ''),
-                  ),
+                _buildItem(
+                  Icons.work,
+                  'ARL',
+                  _perfil?['arl'] ?? 'No registrado',
                 ),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.health_and_safety),
-                    title: const Text('EPS'),
-                    subtitle: Text(_perfil?['eps'] ?? 'No registrado'),
-                  ),
+                _buildItem(
+                  Icons.bloodtype,
+                  'RH',
+                  _perfil?['rh'] ?? 'No registrado',
                 ),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.work),
-                    title: const Text('ARL'),
-                    subtitle: Text(_perfil?['arl'] ?? 'No registrado'),
-                  ),
-                ),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.bloodtype),
-                    title: const Text('RH'),
-                    subtitle: Text(_perfil?['rh'] ?? 'No registrado'),
-                  ),
-                ),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.contact_emergency),
-                    title: const Text('Contacto de emergencia'),
-                    subtitle: Text(
-                      _perfil?['contacto_emergencia'] ?? 'No registrado',
-                    ),
-                  ),
+                _buildItem(
+                  Icons.contact_emergency,
+                  'Contacto emergencia',
+                  _perfil?['contacto_emergencia'] ?? 'No registrado',
                 ),
               ],
             ),
           ),
   );
+
+  Widget _buildItem(IconData icon, String title, String subtitle) {
+    return ParkopsCard(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ListTile(
+        leading: Icon(icon, color: AppTheme.primaryBlue),
+        title: Text(title, style: const TextStyle(color: AppTheme.textPrimary)),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: AppTheme.textSecondary),
+        ),
+      ),
+    );
+  }
 }

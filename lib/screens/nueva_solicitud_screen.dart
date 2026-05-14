@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import '../config.dart';
+import '../theme/app_theme.dart';
+import '../widgets/parkops_components.dart';
 
 class NuevaSolicitudScreen extends StatefulWidget {
   const NuevaSolicitudScreen({super.key});
@@ -16,6 +18,34 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
   final _desc = TextEditingController();
   final List<String> _fotos = [];
   bool _loading = false;
+  List<dynamic> _maquinas = [];
+  String? _maquinaSeleccionada;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarMaquinas();
+  }
+
+  Future<void> _cargarMaquinas() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    final parqueaderoId = prefs.getInt('parqueaderoId');
+    if (parqueaderoId == null) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$API_BASE_URL/parqueaderos/$parqueaderoId/maquinas'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        setState(() {
+          _maquinas = jsonDecode(res.body);
+        });
+      }
+    } catch (e) {
+      print('Error cargando máquinas: $e');
+    }
+  }
 
   Future<void> _tomarFoto() async {
     final f = await ImagePicker().pickImage(source: ImageSource.camera);
@@ -79,7 +109,7 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Eliminar foto'),
-        content: const Text('¿Estás seguro de que deseas eliminar esta foto?'),
+        content: const Text('¿Estás seguro?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -133,6 +163,7 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
               'lon': pos.longitude.toString(),
               'tipo': 'correctivo',
               'fotos': _fotos.join(','),
+              'maquina_id': _maquinaSeleccionada ?? '',
             },
           )
           .timeout(const Duration(seconds: 30));
@@ -163,21 +194,34 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nueva Solicitud'),
-        backgroundColor: const Color(0xFF004A99),
-      ),
+      backgroundColor: AppTheme.darkBackground,
+      appBar: AppBar(title: const Text('Nueva Solicitud')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            TextField(
+            ParkopsTextField(
+              label: 'Descripción',
               controller: _desc,
-              decoration: const InputDecoration(
-                labelText: 'Descripción',
-                border: OutlineInputBorder(),
-              ),
               maxLines: 3,
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: _maquinaSeleccionada,
+              hint: const Text(
+                'Selecciona máquina (opcional)',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+              dropdownColor: AppTheme.darkSurface,
+              style: const TextStyle(color: AppTheme.textPrimary),
+              items: _maquinas.map<DropdownMenuItem<String>>((m) {
+                return DropdownMenuItem(
+                  value: m['id'].toString(),
+                  child: Text(m['nombre']),
+                );
+              }).toList(),
+              onChanged: (v) => setState(() => _maquinaSeleccionada = v),
+              decoration: const InputDecoration(border: OutlineInputBorder()),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -185,8 +229,8 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
               icon: const Icon(Icons.camera_alt),
               label: const Text('Tomar foto'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE30613),
-                foregroundColor: Colors.white,
+                backgroundColor: AppTheme.accentRed,
+                foregroundColor: AppTheme.textPrimary,
               ),
             ),
             const SizedBox(height: 8),
@@ -207,23 +251,10 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
               ),
             ),
             const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _loading ? null : _enviar,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE30613),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                child: _loading
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(color: Colors.white),
-                      )
-                    : const Text('Enviar solicitud'),
-              ),
+            ParkopsPrimaryButton(
+              label: 'Enviar solicitud',
+              onPressed: _loading ? null : _enviar,
+              isLoading: _loading,
             ),
           ],
         ),

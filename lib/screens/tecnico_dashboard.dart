@@ -3,7 +3,11 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:image_picker/image_picker.dart';
 import '../config.dart';
+import '../theme/app_theme.dart';
+import '../widgets/parkops_components.dart';
 import 'menu_parqueadero.dart';
 
 class TecnicoDashboard extends StatefulWidget {
@@ -23,6 +27,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   bool _laborPausada = false;
   String _vistaActual = 'parqueaderos';
   String _nombre = 'Técnico';
+  String _fotoPerfil = ''; // base64 o '' para placeholder
+  bool _gpsActivo = false;
+  final List<String> _fotosEvidencia = []; // galería rápida
 
   @override
   void initState() {
@@ -31,13 +38,24 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     _cargarParqueaderos();
     _cargarVisitasAsignadas();
     _consultarEstadoJornada();
+    _checkGPS();
   }
 
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _nombre = prefs.getString('nombre') ?? 'Técnico';
+      _fotoPerfil = prefs.getString('foto_perfil') ?? '';
     });
+  }
+
+  Future<void> _checkGPS() async {
+    try {
+      await Geolocator.getCurrentPosition();
+      setState(() => _gpsActivo = true);
+    } catch (_) {
+      setState(() => _gpsActivo = false);
+    }
   }
 
   Future<bool> _confirmar(String titulo, String mensaje) async {
@@ -108,7 +126,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       );
       if (res.statusCode == 200) {
         setState(() => _jornadaActiva = true);
-        _msg('Jornada iniciada');
+        _msg('Jornada iniciada', err: false);
       } else
         _msg('Error al iniciar jornada: ${res.statusCode}');
     } catch (e) {
@@ -143,7 +161,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           _parqueaderoLaborNombre = null;
           _laborPausada = false;
         });
-        _msg('Jornada finalizada');
+        _msg('Jornada finalizada', err: false);
       } else
         _msg('Error al finalizar jornada: ${res.statusCode}');
     } catch (e) {
@@ -278,7 +296,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (res.statusCode == 200) {
       _cargarVisitasAsignadas();
       _msg('Solicitud aceptada', err: false);
-      // Obtener el parqueadero_id de la solicitud
       final solicitud = _visitasAsignadas.firstWhere((s) => s['id'] == id);
       final parqueaderoId = solicitud['parqueadero_id'];
       if (parqueaderoId != null && _parqueaderos.isNotEmpty) {
@@ -370,6 +387,102 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     _cargarParqueaderos();
   }
 
+  // ACCIONES RÁPIDAS
+  Future<void> _abrirWaze() async {
+    final url = 'https://waze.com/ul?ll=4.598,-74.071&navigate=yes';
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _llamarCliente() async {
+    final url = 'tel:600123456'; // cambiar por número real
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url));
+    }
+  }
+
+  Future<void> _abrirServicioActual() async {
+    if (_parqueaderoLaborNombre == null) {
+      _msg('No hay un servicio activo');
+      return;
+    }
+    final parqueadero = _parqueaderos.firstWhere(
+      (p) => p['nombre'] == _parqueaderoLaborNombre,
+      orElse: () => null,
+    );
+    if (parqueadero != null) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MenuParqueaderoScreen(parqueadero: parqueadero),
+        ),
+      );
+      _cargarParqueaderos();
+    }
+  }
+
+  // EVIDENCIAS RÁPIDAS
+  Future<void> _tomarFotoEvidencia() async {
+    final picker = ImagePicker();
+    final foto = await picker.pickImage(source: ImageSource.camera);
+    if (foto != null) {
+      final bytes = await foto.readAsBytes();
+      setState(() {
+        _fotosEvidencia.add(base64Encode(bytes));
+      });
+    }
+  }
+
+  void _mostrarFotoEvidencia(String base64) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            InteractiveViewer(child: Image.memory(base64Decode(base64))),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _eliminarFotoEvidencia(int index) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar evidencia'),
+        content: const Text('¿Eliminar esta foto?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              setState(() => _fotosEvidencia.removeAt(index));
+            },
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: AppTheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _msg(String m, {bool err = true}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -381,214 +494,407 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Row(
-        children: [
-          Image.network('https://i.imgur.com/dpfS4Xw.png', height: 40),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('ParkOps - Técnico', style: TextStyle(fontSize: 16)),
-              Text(_nombre, style: const TextStyle(fontSize: 12)),
-            ],
-          ),
-        ],
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.darkBackground,
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AppTheme.accentRed,
+        onPressed: _tomarFotoEvidencia,
+        child: const Icon(Icons.camera_alt, color: Colors.white),
       ),
-      backgroundColor: const Color(0xFF004A99),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.logout, color: Colors.white),
-          onPressed: _logout,
-          tooltip: 'Cerrar sesión',
-        ),
-        if (!_jornadaActiva)
-          IconButton(
-            icon: const Icon(Icons.play_arrow, color: Colors.white),
-            onPressed: _cargandoJornada ? null : _iniciarJornada,
-            tooltip: 'Iniciar jornada',
-          ),
-        if (_jornadaActiva && !_jornadaPausada)
-          IconButton(
-            icon: const Icon(Icons.pause, color: Colors.white),
-            onPressed: _pausarJornada,
-            tooltip: 'Pausar jornada',
-          ),
-        if (_jornadaActiva && _jornadaPausada)
-          IconButton(
-            icon: const Icon(Icons.play_arrow, color: Colors.white),
-            onPressed: _reanudarJornada,
-            tooltip: 'Reanudar jornada',
-          ),
-        if (_jornadaActiva)
-          IconButton(
-            icon: const Icon(Icons.stop, color: Colors.white),
-            onPressed: _cargandoJornada ? null : _finalizarJornada,
-            tooltip: 'Finalizar jornada',
-          ),
-      ],
-    ),
-    body: Column(
-      children: [
-        if (_parqueaderoLaborNombre != null)
+      body: Column(
+        children: [
+          // ---------- HEADER OPERATIVO ----------
           Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            color: _laborPausada ? Colors.yellow[700] : Colors.green,
+            padding: const EdgeInsets.fromLTRB(16, 48, 16, 12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  AppTheme.primaryBlue.withOpacity(0.4),
+                  AppTheme.darkBackground,
+                ],
+              ),
+            ),
             child: Row(
               children: [
-                Icon(
-                  _laborPausada ? Icons.pause_circle : Icons.location_on,
-                  color: Colors.white,
+                // Foto de perfil
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: AppTheme.darkBorder,
+                  backgroundImage: _fotoPerfil.isNotEmpty
+                      ? MemoryImage(base64Decode(_fotoPerfil))
+                      : null,
+                  child: _fotoPerfil.isEmpty
+                      ? const Icon(Icons.person, color: AppTheme.textSecondary)
+                      : null,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    _laborPausada
-                        ? 'Labor pausada en $_parqueaderoLaborNombre'
-                        : 'Trabajando en $_parqueaderoLaborNombre',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _nombre,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.circle,
+                            size: 10,
+                            color: _jornadaActiva
+                                ? AppTheme.success
+                                : AppTheme.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _jornadaActiva ? 'En jornada' : 'Sin jornada',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: _jornadaActiva
+                                  ? AppTheme.success
+                                  : AppTheme.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Icon(
+                            Icons.gps_fixed,
+                            size: 14,
+                            color: _gpsActivo ? AppTheme.info : AppTheme.error,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _gpsActivo ? 'GPS activo' : 'GPS inactivo',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _gpsActivo
+                                  ? AppTheme.info
+                                  : AppTheme.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.logout, color: AppTheme.textSecondary),
+                  onPressed: _logout,
                 ),
               ],
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => setState(() => _vistaActual = 'asignadas'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _vistaActual == 'asignadas'
-                        ? const Color(0xFFE30613)
-                        : Colors.grey,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(0, 40),
+
+          // ---------- BOTÓN JORNADA ----------
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: _jornadaActiva
+                ? ParkopsAccentButton(
+                    label: 'FINALIZAR JORNADA',
+                    icon: Icons.stop_circle_outlined,
+                    onPressed: _cargandoJornada ? null : _finalizarJornada,
+                  )
+                : ParkopsPrimaryButton(
+                    label: 'INICIAR JORNADA',
+                    icon: Icons.play_circle_outline,
+                    onPressed: _cargandoJornada ? null : _iniciarJornada,
                   ),
-                  child: const Text('Visitas Asignadas'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () =>
-                      setState(() => _vistaActual = 'parqueaderos'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _vistaActual == 'parqueaderos'
-                        ? const Color(0xFFE30613)
-                        : Colors.grey,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(0, 40),
-                  ),
-                  child: const Text('Parqueaderos'),
-                ),
-              ),
-            ],
           ),
-        ),
-        Expanded(
-          child: _vistaActual == 'asignadas'
-              ? _cargandoVisitas
-                    ? const Center(child: CircularProgressIndicator())
-                    : _errorVisitas != null
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text('Error: $_errorVisitas'),
-                            const SizedBox(height: 8),
-                            ElevatedButton(
-                              onPressed: _cargarVisitasAsignadas,
-                              child: const Text('Reintentar'),
+
+          // ---------- SERVICIO ACTUAL ----------
+          if (_parqueaderoLaborNombre != null)
+            ParkopsCard(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.location_on, color: AppTheme.info, size: 18),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            _parqueaderoLaborNombre!,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.textPrimary,
                             ),
-                          ],
+                          ),
                         ),
-                      )
-                    : _visitasAsignadas.isEmpty
-                    ? const Center(child: Text('No hay visitas asignadas.'))
-                    : ListView.builder(
-                        itemCount: _visitasAsignadas.length,
-                        itemBuilder: (_, i) {
-                          final s = _visitasAsignadas[i];
-                          final bool puedeAceptar =
-                              s['estado'] == 'asignada' ||
-                              s['estado'] == 'pendiente';
-                          final bool puedeDevolver = s['estado'] == 'aceptada';
-                          return Card(
-                            margin: const EdgeInsets.all(8),
-                            child: ListTile(
-                              title: Text(
-                                'Cliente: ${s['cliente_nombre'] ?? 'N/D'}',
+                        ParkopsStatusBadge(
+                          status: _laborPausada ? 'pausada' : 'en_proceso',
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _quickActionButton(Icons.map, 'Waze', _abrirWaze),
+                        const SizedBox(width: 8),
+                        _quickActionButton(
+                          Icons.phone,
+                          'Llamar',
+                          _llamarCliente,
+                        ),
+                        const SizedBox(width: 8),
+                        _quickActionButton(
+                          Icons.open_in_new,
+                          'Abrir',
+                          _abrirServicioActual,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // ---------- GALERÍA DE EVIDENCIAS ----------
+          if (_fotosEvidencia.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Evidencias rápidas',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    height: 80,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _fotosEvidencia.length,
+                      itemBuilder: (_, i) => GestureDetector(
+                        onTap: () => _mostrarFotoEvidencia(_fotosEvidencia[i]),
+                        onLongPress: () => _eliminarFotoEvidencia(i),
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          width: 80,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            image: DecorationImage(
+                              image: MemoryImage(
+                                base64Decode(_fotosEvidencia[i]),
                               ),
-                              subtitle: Text(
-                                '${s['tipo']} - ${s['estado']}\n${s['descripcion']}',
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // ---------- PESTAÑAS ----------
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildTabButton('Visitas Asignadas', 'asignadas'),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildTabButton('Parqueaderos', 'parqueaderos'),
+                ),
+              ],
+            ),
+          ),
+
+          // ---------- CONTENIDO PRINCIPAL ----------
+          Expanded(
+            child: _vistaActual == 'asignadas'
+                ? _cargandoVisitas
+                      ? const Center(child: CircularProgressIndicator())
+                      : _errorVisitas != null
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'Error: $_errorVisitas',
+                                style: const TextStyle(
+                                  color: AppTheme.textPrimary,
+                                ),
                               ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (puedeAceptar)
-                                    ElevatedButton(
-                                      onPressed:
-                                          (!_jornadaActiva || _jornadaPausada)
-                                          ? null
-                                          : () => _aceptarSolicitud(s['id']),
-                                      child: const Text('Aceptar'),
-                                    ),
-                                  if (puedeDevolver)
-                                    TextButton(
-                                      onPressed: () =>
-                                          _devolverAPendiente(s['id']),
-                                      child: const Text(
-                                        'Devolver',
-                                        style: TextStyle(color: Colors.orange),
+                              const SizedBox(height: 8),
+                              ElevatedButton(
+                                onPressed: _cargarVisitasAsignadas,
+                                child: const Text('Reintentar'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : _visitasAsignadas.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'No hay visitas asignadas.',
+                            style: TextStyle(color: AppTheme.textSecondary),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 80),
+                          itemCount: _visitasAsignadas.length,
+                          itemBuilder: (_, i) {
+                            final s = _visitasAsignadas[i];
+                            final bool puedeAceptar =
+                                s['estado'] == 'asignada' ||
+                                s['estado'] == 'pendiente';
+                            final bool puedeDevolver =
+                                s['estado'] == 'aceptada';
+                            return ParkopsCard(
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 4,
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '${s['tipo']} - ${s['estado']}',
+                                            style: const TextStyle(
+                                              color: AppTheme.textPrimary,
+                                            ),
+                                          ),
+                                          Text(
+                                            s['descripcion'] ?? '',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: AppTheme.textSecondary,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                ],
+                                    if (puedeAceptar)
+                                      ParkopsPrimaryButton(
+                                        label: 'Aceptar',
+                                        onPressed: () =>
+                                            _aceptarSolicitud(s['id']),
+                                        fullWidth: false,
+                                      ),
+                                    if (puedeDevolver)
+                                      TextButton(
+                                        onPressed: () =>
+                                            _devolverAPendiente(s['id']),
+                                        child: const Text(
+                                          'Devolver',
+                                          style: TextStyle(
+                                            color: AppTheme.warning,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          );
-                        },
-                      )
-              : _cargandoParqueaderos
-              ? const Center(child: CircularProgressIndicator())
-              : _errorParqueaderos != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('Error: $_errorParqueaderos'),
-                      const SizedBox(height: 8),
-                      ElevatedButton(
-                        onPressed: _cargarParqueaderos,
-                        child: const Text('Reintentar'),
-                      ),
-                    ],
-                  ),
-                )
-              : _parqueaderos.isEmpty
-              ? const Center(child: Text('No hay parqueaderos disponibles.'))
-              : ListView.builder(
-                  itemCount: _parqueaderos.length,
-                  itemBuilder: (_, i) => Card(
-                    margin: const EdgeInsets.all(8),
-                    child: ListTile(
-                      title: Text(_parqueaderos[i]['nombre']),
-                      subtitle: Text(_parqueaderos[i]['direccion']),
-                      trailing: const Icon(Icons.chevron_right),
+                            );
+                          },
+                        )
+                : _cargandoParqueaderos
+                ? const Center(child: CircularProgressIndicator())
+                : _errorParqueaderos != null
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Error: $_errorParqueaderos',
+                          style: const TextStyle(color: AppTheme.textPrimary),
+                        ),
+                        ElevatedButton(
+                          onPressed: _cargarParqueaderos,
+                          child: const Text('Reintentar'),
+                        ),
+                      ],
+                    ),
+                  )
+                : _parqueaderos.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No hay parqueaderos disponibles.',
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 80),
+                    itemCount: _parqueaderos.length,
+                    itemBuilder: (_, i) => ParkopsCard(
                       onTap: (!_jornadaActiva || _jornadaPausada)
                           ? null
                           : () => _entrarAParqueadero(_parqueaderos[i]),
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      child: ListTile(
+                        title: Text(
+                          _parqueaderos[i]['nombre'],
+                          style: const TextStyle(color: AppTheme.textPrimary),
+                        ),
+                        subtitle: Text(
+                          _parqueaderos[i]['direccion'],
+                          style: const TextStyle(color: AppTheme.textSecondary),
+                        ),
+                        trailing: const Icon(
+                          Icons.chevron_right,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-        ),
-      ],
-    ),
-  );
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _quickActionButton(IconData icon, String label, VoidCallback onTap) {
+    return TextButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 16, color: AppTheme.info),
+      label: Text(
+        label,
+        style: const TextStyle(fontSize: 12, color: AppTheme.info),
+      ),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+      ),
+    );
+  }
+
+  Widget _buildTabButton(String text, String vista) {
+    final isActive = _vistaActual == vista;
+    return ElevatedButton(
+      onPressed: () => setState(() => _vistaActual = vista),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isActive ? AppTheme.primaryBlue : AppTheme.darkSurface,
+        foregroundColor: AppTheme.textPrimary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+      ),
+      child: Text(text, style: const TextStyle(fontSize: 14)),
+    );
+  }
 }

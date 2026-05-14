@@ -17,7 +17,8 @@ dependencies:
   signature: ^5.4.0
   mobile_scanner: ^5.2.3
   intl: ^0.18.0
-  url_launcher: ^6.1.0   # <-- NUEVA DEPENDENCIA
+  url_launcher: ^6.1.0
+  fl_chart: ^0.70.0   # ← NUEVA DEPENDENCIA
 
 dev_dependencies:
   flutter_test:
@@ -26,3 +27,16 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/splash_background.png
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700

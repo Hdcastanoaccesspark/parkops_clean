@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
+import '../theme/app_theme.dart';
+import '../widgets/parkops_components.dart';
 
 class CorrectivoRemotoScreen extends StatefulWidget {
   final Map<String, dynamic> parqueadero;
@@ -16,16 +18,16 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
   final _desc = TextEditingController(), _falla = TextEditingController();
   List<String> _fotosAntes = [], _fotosDespues = [], _fotosCotizacion = [];
   bool _enviando = false, _requiereCotizacion = false;
-  final String _cotizacionRepuesto = '';
+  String _cotizacionRepuesto = '';
 
   Future<void> _tomarFoto(String cat, bool useCamera) async {
     final source = useCamera ? ImageSource.camera : ImageSource.gallery;
     final f = await ImagePicker().pickImage(source: source);
     if (f != null) {
       final b = await f.readAsBytes();
-      if (cat == 'antes') {
+      if (cat == 'antes')
         _fotosAntes.add(base64Encode(b));
-      } else if (cat == 'despues')
+      else if (cat == 'despues')
         _fotosDespues.add(base64Encode(b));
       else
         _fotosCotizacion.add(base64Encode(b));
@@ -52,7 +54,10 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
               Navigator.pop(ctx);
               _confirmarEliminarFoto(fotos, index);
             },
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: AppTheme.error),
+            ),
           ),
         ],
       ),
@@ -98,7 +103,10 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
               Navigator.pop(ctx);
               setState(() => fotos.removeAt(index));
             },
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: AppTheme.error),
+            ),
           ),
         ],
       ),
@@ -124,7 +132,63 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
   }
 
   Future<void> _cotDialog() async {
-    /* igual que en presencial, usando _buildFotoLista(_fotosCotizacion) */
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cotización'),
+        content: const Text('¿Requiere repuestos?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sí'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No'),
+          ),
+        ],
+      ),
+    );
+    if (r == true) {
+      final rep = await showDialog<String>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setStateDialog) => AlertDialog(
+            title: const Text('Detalle'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ParkopsTextField(
+                  label: 'Ej: Batería',
+                  onChanged: (v) => _cotizacionRepuesto = v,
+                ),
+                const SizedBox(height: 8),
+                _buildFotoLista(_fotosCotizacion),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    await _tomarFoto('cotizacion', true);
+                    setStateDialog(() {});
+                  },
+                  icon: const Icon(Icons.camera_alt),
+                  label: const Text('Foto del repuesto'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, _cotizacionRepuesto),
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (rep != null && rep.isNotEmpty)
+        setState(() {
+          _requiereCotizacion = true;
+          _cotizacionRepuesto = rep;
+        });
+    }
   }
 
   Future<void> _enviar() async {
@@ -136,6 +200,7 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
       _msg('Debe tomar al menos una foto del ANTES');
       return;
     }
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -176,9 +241,8 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
         final data = jsonDecode(res.body);
         _msg('Reporte enviado', err: false);
         Navigator.pop(context, data['solicitud_id']);
-      } else {
+      } else
         _msg('Error: ${res.statusCode}');
-      }
     } catch (e) {
       _msg('Error: $e');
     } finally {
@@ -186,16 +250,19 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
     }
   }
 
-  void _msg(String m, {bool err = true}) =>
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(m),
-          backgroundColor: err ? Colors.red : Colors.green,
-        ),
-      );
+  void _msg(String m, {bool err = true}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(m),
+        backgroundColor: err ? Colors.red : Colors.green,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    backgroundColor: AppTheme.darkBackground,
     appBar: AppBar(title: const Text('Mantenimiento Remoto')),
     body: SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -203,30 +270,35 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
         children: [
           const Text(
             'Falla reportada',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          TextField(
-            controller: _falla,
-            decoration: const InputDecoration(
-              hintText: 'Ej: No responde el sistema',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
             ),
+          ),
+          ParkopsTextField(
+            label: 'Ej: No responde el sistema',
+            controller: _falla,
           ),
           const SizedBox(height: 16),
           const Text(
             'Descripción',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
           ),
-          TextField(
+          ParkopsTextField(
+            label: 'Detalles del problema',
             controller: _desc,
             maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'Detalles del problema',
-            ),
           ),
           const SizedBox(height: 16),
           const Text(
             'Fotos antes',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
           ),
           _buildFotoLista(_fotosAntes),
           Row(
@@ -235,19 +307,30 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
                 onPressed: () => _tomarFoto('antes', true),
                 icon: const Icon(Icons.camera_alt),
                 label: const Text('Tomar foto'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.accentRed,
+                  foregroundColor: AppTheme.textPrimary,
+                ),
               ),
               const SizedBox(width: 8),
               ElevatedButton.icon(
                 onPressed: () => _tomarFoto('antes', false),
                 icon: const Icon(Icons.photo_library),
                 label: const Text('Galería'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.darkSurface,
+                  foregroundColor: AppTheme.textPrimary,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 16),
           const Text(
             'Fotos después',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
           ),
           _buildFotoLista(_fotosDespues),
           Row(
@@ -256,12 +339,20 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
                 onPressed: () => _tomarFoto('despues', true),
                 icon: const Icon(Icons.camera_alt),
                 label: const Text('Tomar foto'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.accentRed,
+                  foregroundColor: AppTheme.textPrimary,
+                ),
               ),
               const SizedBox(width: 8),
               ElevatedButton.icon(
                 onPressed: () => _tomarFoto('despues', false),
                 icon: const Icon(Icons.photo_library),
                 label: const Text('Galería'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.darkSurface,
+                  foregroundColor: AppTheme.textPrimary,
+                ),
               ),
             ],
           ),
@@ -274,20 +365,16 @@ class _CorrectivoRemotoScreenState extends State<CorrectivoRemotoScreen> {
                   ? 'Cotización solicitada'
                   : 'Agregar cotización',
             ),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: AppTheme.textPrimary,
+            ),
           ),
           const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _enviando ? null : _enviar,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE30613),
-              ),
-              child: _enviando
-                  ? const CircularProgressIndicator()
-                  : const Text('Enviar reporte'),
-            ),
+          ParkopsPrimaryButton(
+            label: 'Enviar reporte',
+            onPressed: _enviando ? null : _enviar,
+            isLoading: _enviando,
           ),
         ],
       ),

@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
+import '../theme/app_theme.dart';
+import '../widgets/parkops_components.dart';
 
 class CorrectivoPresencialScreen extends StatefulWidget {
   final Map<String, dynamic> parqueadero;
@@ -71,9 +73,9 @@ class _CorrectivoPresencialScreenState
     final f = await ImagePicker().pickImage(source: ImageSource.camera);
     if (f != null) {
       final b = await f.readAsBytes();
-      if (cat == 'antes') {
+      if (cat == 'antes')
         _fotosAntes.add(base64Encode(b));
-      } else if (cat == 'despues')
+      else if (cat == 'despues')
         _fotosDespues.add(base64Encode(b));
       else
         _fotosCotizacion.add(base64Encode(b));
@@ -100,7 +102,10 @@ class _CorrectivoPresencialScreenState
               Navigator.pop(ctx);
               _confirmarEliminarFoto(fotos, index);
             },
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: AppTheme.error),
+            ),
           ),
         ],
       ),
@@ -135,7 +140,7 @@ class _CorrectivoPresencialScreenState
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Eliminar foto'),
-        content: const Text('¿Estás seguro de que deseas eliminar esta foto?'),
+        content: const Text('¿Estás seguro?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -146,7 +151,10 @@ class _CorrectivoPresencialScreenState
               Navigator.pop(ctx);
               setState(() => fotos.removeAt(index));
             },
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: AppTheme.error),
+            ),
           ),
         ],
       ),
@@ -198,8 +206,8 @@ class _CorrectivoPresencialScreenState
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  decoration: const InputDecoration(hintText: 'Ej: Batería'),
+                ParkopsTextField(
+                  label: 'Ej: Batería',
                   onChanged: (v) => _cotizacionRepuesto = v,
                 ),
                 const SizedBox(height: 8),
@@ -223,12 +231,11 @@ class _CorrectivoPresencialScreenState
           ),
         ),
       );
-      if (rep != null && rep.isNotEmpty) {
+      if (rep != null && rep.isNotEmpty)
         setState(() {
           _requiereCotizacion = true;
           _cotizacionRepuesto = rep;
         });
-      }
     }
   }
 
@@ -253,6 +260,7 @@ class _CorrectivoPresencialScreenState
       _msg('Debe tomar al menos una foto del ANTES');
       return;
     }
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -294,9 +302,8 @@ class _CorrectivoPresencialScreenState
         final data = jsonDecode(res.body);
         _msg('Reporte guardado', err: false);
         Navigator.pop(context, data['solicitud_id']);
-      } else {
+      } else
         _msg('Error: ${res.statusCode}');
-      }
     } catch (e) {
       _msg('Error: $e');
     } finally {
@@ -304,16 +311,19 @@ class _CorrectivoPresencialScreenState
     }
   }
 
-  void _msg(String m, {bool err = true}) =>
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(m),
-          backgroundColor: err ? Colors.red : Colors.green,
-        ),
-      );
+  void _msg(String m, {bool err = true}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(m),
+        backgroundColor: err ? Colors.red : Colors.green,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    backgroundColor: AppTheme.darkBackground,
     appBar: AppBar(title: Text('Correctivo - ${widget.maquina['nombre']}')),
     body: SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -322,29 +332,48 @@ class _CorrectivoPresencialScreenState
         children: [
           const Text(
             'Fotos antes',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
           ),
           _buildFotoLista(_fotosAntes),
           ElevatedButton.icon(
             onPressed: () => _tomarFoto('antes'),
             icon: const Icon(Icons.camera_alt),
             label: const Text('Tomar foto (antes)'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.accentRed,
+              foregroundColor: AppTheme.textPrimary,
+            ),
           ),
           const SizedBox(height: 16),
           const Text(
             'Fotos después',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
           ),
           _buildFotoLista(_fotosDespues),
           ElevatedButton.icon(
             onPressed: () => _tomarFoto('despues'),
             icon: const Icon(Icons.camera_alt),
             label: const Text('Tomar foto (después)'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.accentRed,
+              foregroundColor: AppTheme.textPrimary,
+            ),
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            initialValue: _fallaSeleccionada,
-            hint: const Text('Selecciona falla'),
+            value: _fallaSeleccionada,
+            hint: const Text(
+              'Selecciona falla',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+            dropdownColor: AppTheme.darkSurface,
+            style: const TextStyle(color: AppTheme.textPrimary),
             items: _fallasPosibles
                 .map((f) => DropdownMenuItem(value: f, child: Text(f)))
                 .toList(),
@@ -352,19 +381,22 @@ class _CorrectivoPresencialScreenState
             decoration: const InputDecoration(border: OutlineInputBorder()),
           ),
           if (_fallaSeleccionada == 'Otro')
-            TextField(
+            ParkopsTextField(
+              label: 'Especificar falla',
               onChanged: (v) => _fallaPersonalizada = v,
-              decoration: const InputDecoration(labelText: 'Especificar falla'),
             ),
           const SizedBox(height: 16),
           const Text(
             'Observaciones',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
           ),
-          TextField(
+          ParkopsTextField(
+            label: 'Observaciones',
             controller: _obs,
             maxLines: 3,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
           ),
           const SizedBox(height: 16),
           ElevatedButton.icon(
@@ -375,20 +407,16 @@ class _CorrectivoPresencialScreenState
                   ? 'Cotización solicitada'
                   : 'Agregar cotización',
             ),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: AppTheme.textPrimary,
+            ),
           ),
           const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _enviando ? null : _guardar,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE30613),
-              ),
-              child: _enviando
-                  ? const CircularProgressIndicator()
-                  : const Text('Guardar reporte'),
-            ),
+          ParkopsPrimaryButton(
+            label: 'Guardar reporte',
+            onPressed: _enviando ? null : _guardar,
+            isLoading: _enviando,
           ),
         ],
       ),

@@ -3,6 +3,9 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
+import '../theme/app_theme.dart';
+import '../widgets/parkops_components.dart';
+import '../widgets/status_timeline.dart'; // <-- NUEVO
 import 'nueva_solicitud_screen.dart';
 
 class ClienteDashboard extends StatefulWidget {
@@ -100,12 +103,12 @@ class ClienteDashboardState extends State<ClienteDashboard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.darkBackground,
       appBar: AppBar(
         title: const Text('ParkOps - Cliente'),
-        backgroundColor: const Color(0xFF004A99),
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
+            icon: const Icon(Icons.logout, color: AppTheme.textPrimary),
             onPressed: _logout,
             tooltip: 'Cerrar sesión',
           ),
@@ -113,73 +116,137 @@ class ClienteDashboardState extends State<ClienteDashboard> {
       ),
       body: Column(
         children: [
-          Card(
-            margin: const EdgeInsets.all(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Cliente: $_nombre',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+          // Header operacional
+          ParkopsHeader(
+            title: _parqueaderoNombre.isNotEmpty
+                ? _parqueaderoNombre
+                : 'Parqueadero',
+            subtitle: 'Última atención: Hoy',
+            trailing: const ParkopsStatusBadge(status: 'operativo'),
+          ),
+          const SizedBox(height: 16),
+          // Botón principal grande
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: ParkopsAccentButton(
+              label: 'REPORTAR NOVEDAD',
+              icon: Icons.warning_amber_rounded,
+              onPressed: () async {
+                final ok = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const NuevaSolicitudScreen(),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Parqueadero: $_parqueaderoNombre',
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                ],
+                );
+                if (ok == true) _cargarSolicitudes();
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
+          // Lista de solicitudes
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Mis Solicitudes',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.textPrimary,
+                ),
               ),
             ),
           ),
-          ElevatedButton.icon(
-            onPressed: () async {
-              final ok = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const NuevaSolicitudScreen()),
-              );
-              if (ok == true) _cargarSolicitudes();
-            },
-            icon: const Icon(Icons.add),
-            label: const Text('Nueva Solicitud'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE30613),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Mis Solicitudes',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
+          const SizedBox(height: 12),
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _solicitudes.isEmpty
-                ? const Center(child: Text('No tienes solicitudes aún.'))
-                : ListView.builder(
-                    itemCount: _solicitudes.length,
-                    itemBuilder: (_, i) => Card(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      child: ListTile(
-                        title: Text(
-                          '${_solicitudes[i]['tipo']} - ${_solicitudes[i]['estado']}',
-                        ),
-                        subtitle: Text(
-                          _solicitudes[i]['descripcion'],
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
+                ? const Center(
+                    child: Text(
+                      'No tienes solicitudes aún.\nPresiona "REPORTAR NOVEDAD" para comenzar.',
+                      style: TextStyle(color: AppTheme.textSecondary),
                     ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    itemCount: _solicitudes.length,
+                    itemBuilder: (_, i) {
+                      final solicitud = _solicitudes[i];
+                      return ParkopsCard(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 6,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    '#${solicitud['id']}',
+                                    style: const TextStyle(
+                                      color: AppTheme.textSecondary,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    solicitud['tipo'] ?? '',
+                                    style: const TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  ParkopsStatusBadge(
+                                    status: solicitud['estado'] ?? 'pendiente',
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                solicitud['descripcion'] ?? '',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppTheme.textSecondary,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              StatusTimeline(
+                                currentStatus:
+                                    solicitud['estado'] ?? 'pendiente',
+                              ),
+                              if (solicitud['estado'] == 'finalizada')
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton.icon(
+                                      icon: const Icon(
+                                        Icons.download,
+                                        size: 16,
+                                        color: AppTheme.info,
+                                      ),
+                                      label: const Text(
+                                        'PDF',
+                                        style: TextStyle(color: AppTheme.info),
+                                      ),
+                                      onPressed: () {
+                                        /* descargar pdf */
+                                      },
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
           ),
         ],

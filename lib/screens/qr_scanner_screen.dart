@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../theme/app_theme.dart';
 
 class QrScannerScreen extends StatelessWidget {
   const QrScannerScreen({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Escanear QR'),
-      backgroundColor: const Color(0xFF004A99),
-    ),
+    backgroundColor: AppTheme.darkBackground,
+    appBar: AppBar(title: const Text('Escanear QR')),
     body: MobileScanner(
       onDetect: (capture) {
         final barcode = capture.barcodes.first;

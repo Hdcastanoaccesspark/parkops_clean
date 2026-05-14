@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
+import '../theme/app_theme.dart';
+import '../widgets/parkops_components.dart';
 
 class PreventivoScreen extends StatefulWidget {
   final Map<String, dynamic> parqueadero;
@@ -18,8 +20,7 @@ class PreventivoScreen extends StatefulWidget {
 }
 
 class _PreventivoScreenState extends State<PreventivoScreen> {
-  bool _backupRealizado = false;
-  bool _preguntandoBackup = true;
+  bool _backupRealizado = false, _preguntandoBackup = true;
   Map<String, dynamic> _maquinaSeleccionada = {};
   List<String> _fotosAntes = [], _fotosDespues = [], _fotosCotizacion = [];
   final _obs = TextEditingController();
@@ -62,12 +63,11 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
       ),
     );
     if (c == true) {
-      if (mounted) {
+      if (mounted)
         setState(() {
           _backupRealizado = true;
           _preguntandoBackup = false;
         });
-      }
       return;
     }
     final motivo = await showDialog<String>(
@@ -75,10 +75,8 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Motivo'),
-        content: TextField(
-          decoration: const InputDecoration(
-            hintText: '¿Por qué no se realizó el backup?',
-          ),
+        content: ParkopsTextField(
+          label: '¿Por qué no se realizó el backup?',
           onChanged: (v) => _motivoNoBackup = v,
         ),
         actions: [
@@ -90,12 +88,11 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
       ),
     );
     if (motivo != null && motivo.isNotEmpty) {
-      if (mounted) {
+      if (mounted)
         setState(() {
           _backupRealizado = true;
           _preguntandoBackup = false;
         });
-      }
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -117,9 +114,9 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
     final f = await ImagePicker().pickImage(source: ImageSource.camera);
     if (f != null) {
       final b = await f.readAsBytes();
-      if (cat == 'antes') {
+      if (cat == 'antes')
         _fotosAntes.add(base64Encode(b));
-      } else if (cat == 'despues')
+      else if (cat == 'despues')
         _fotosDespues.add(base64Encode(b));
       else
         _fotosCotizacion.add(base64Encode(b));
@@ -146,7 +143,10 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
               Navigator.pop(ctx);
               _confirmarEliminarFoto(fotos, index);
             },
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: AppTheme.error),
+            ),
           ),
         ],
       ),
@@ -181,7 +181,7 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Eliminar foto'),
-        content: const Text('¿Estás seguro de que deseas eliminar esta foto?'),
+        content: const Text('¿Estás seguro?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -192,7 +192,10 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
               Navigator.pop(ctx);
               setState(() => fotos.removeAt(index));
             },
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: AppTheme.error),
+            ),
           ),
         ],
       ),
@@ -244,8 +247,8 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  decoration: const InputDecoration(hintText: 'Ej: Batería'),
+                ParkopsTextField(
+                  label: 'Ej: Batería',
                   onChanged: (v) => _cotizacionRepuesto = v,
                 ),
                 const SizedBox(height: 8),
@@ -269,12 +272,11 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
           ),
         ),
       );
-      if (rep != null && rep.isNotEmpty) {
+      if (rep != null && rep.isNotEmpty)
         setState(() {
           _requiereCotizacion = true;
           _cotizacionRepuesto = rep;
         });
-      }
     }
   }
 
@@ -318,10 +320,7 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
     String d =
         'Preventivo en ${_maquinaSeleccionada['nombre']}\n'
         'Mediciones: F-N=${_mediciones['faseNeutro']}V, F-T=${_mediciones['faseTierra']}V, N-T=${_mediciones['neutroTierra']}V, UPS=${_mediciones['ups']}V, Protector=${_mediciones['protectorVoltaje']}V\n'
-        'Obs extra: ${_mediciones['observacionesExtra']}\n'
-        'Obs generales: ${_obs.text}\n'
-        'Cotización: ${_requiereCotizacion ? _cotizacionRepuesto : "No"}\n'
-        'Backup: ${_motivoNoBackup.isEmpty ? "Sí" : "No - $_motivoNoBackup"}';
+        'Obs extra: ${_mediciones['observacionesExtra']}\nObs generales: ${_obs.text}\nCotización: ${_requiereCotizacion ? _cotizacionRepuesto : "No"}\nBackup: ${_motivoNoBackup.isEmpty ? "Sí" : "No - $_motivoNoBackup"}';
     try {
       final res = await http.post(
         Uri.parse('$API_BASE_URL/solicitudes/crear'),
@@ -338,10 +337,9 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         _msg('Reporte guardado', err: false);
-        Navigator.pop(context, data['solicitud_id']); // devuelve el ID
-      } else {
+        Navigator.pop(context, data['solicitud_id']);
+      } else
         _msg('Error: ${res.statusCode}');
-      }
     } catch (e) {
       _msg('Error: $e');
     } finally {
@@ -349,25 +347,26 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
     }
   }
 
-  void _msg(String m, {bool err = true}) =>
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(m),
-          backgroundColor: err ? Colors.red : Colors.green,
-        ),
-      );
+  void _msg(String m, {bool err = true}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(m),
+        backgroundColor: err ? Colors.red : Colors.green,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (_preguntandoBackup) {
+    if (_preguntandoBackup)
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    if (!_backupRealizado) {
+    if (!_backupRealizado)
       return const Scaffold(
         body: Center(child: Text('Debes confirmar el backup para continuar.')),
       );
-    }
     return Scaffold(
+      backgroundColor: AppTheme.darkBackground,
       appBar: AppBar(title: const Text('Mantenimiento Preventivo')),
       body: _mostrandoChecklist
           ? SingleChildScrollView(
@@ -376,7 +375,10 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
                 children: [
                   const Text(
                     'Mediciones eléctricas',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
                   ),
                   ...[
                     'faseNeutro',
@@ -385,56 +387,73 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
                     'ups',
                     'protectorVoltaje',
                   ].map(
-                    (e) => TextField(
-                      decoration: InputDecoration(
-                        labelText: e == 'faseNeutro'
-                            ? 'Fase-Neutro (V)'
-                            : e == 'faseTierra'
-                            ? 'Fase-Tierra (V)'
-                            : e == 'neutroTierra'
-                            ? 'Neutro-Tierra (V)'
-                            : e == 'ups'
-                            ? 'UPS (V)'
-                            : 'Protector de voltaje (V)',
-                      ),
-                      onChanged: (v) => _mediciones[e] = v,
+                    (e) => ParkopsTextField(
+                      label: e == 'faseNeutro'
+                          ? 'Fase-Neutro (V)'
+                          : e == 'faseTierra'
+                          ? 'Fase-Tierra (V)'
+                          : e == 'neutroTierra'
+                          ? 'Neutro-Tierra (V)'
+                          : e == 'ups'
+                          ? 'UPS (V)'
+                          : 'Protector de voltaje (V)',
                       keyboardType: TextInputType.number,
+                      onChanged: (v) => _mediciones[e] = v,
                     ),
                   ),
-                  TextField(
-                    decoration: const InputDecoration(
-                      labelText: 'Observaciones adicionales',
-                    ),
+                  ParkopsTextField(
+                    label: 'Observaciones adicionales',
                     onChanged: (v) => _mediciones['observacionesExtra'] = v,
                   ),
                   const SizedBox(height: 16),
                   const Text(
                     'Fotos antes',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
                   ),
                   _buildFotoLista(_fotosAntes),
                   ElevatedButton.icon(
                     onPressed: () => _tomarFoto('antes'),
                     icon: const Icon(Icons.camera_alt),
                     label: const Text('Tomar foto antes'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.accentRed,
+                      foregroundColor: AppTheme.textPrimary,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   const Text(
                     'Fotos después',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
                   ),
                   _buildFotoLista(_fotosDespues),
                   ElevatedButton.icon(
                     onPressed: () => _tomarFoto('despues'),
                     icon: const Icon(Icons.camera_alt),
                     label: const Text('Tomar foto después'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.accentRed,
+                      foregroundColor: AppTheme.textPrimary,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   const Text(
                     'Observaciones generales',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
                   ),
-                  TextField(controller: _obs, maxLines: 2),
+                  ParkopsTextField(
+                    label: 'Observaciones',
+                    controller: _obs,
+                    maxLines: 2,
+                  ),
                   const SizedBox(height: 16),
                   ElevatedButton.icon(
                     onPressed: _cotDialog,
@@ -446,17 +465,14 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
+                      foregroundColor: AppTheme.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 24),
-                  ElevatedButton(
+                  ParkopsPrimaryButton(
+                    label: 'Guardar reporte',
                     onPressed: _enviando ? null : _guardar,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFE30613),
-                    ),
-                    child: _enviando
-                        ? const CircularProgressIndicator()
-                        : const Text('Guardar reporte'),
+                    isLoading: _enviando,
                   ),
                 ],
               ),
@@ -464,9 +480,15 @@ class _PreventivoScreenState extends State<PreventivoScreen> {
           : ListView.builder(
               itemCount: widget.maquinas.length,
               itemBuilder: (_, i) => ListTile(
-                title: Text(widget.maquinas[i]['nombre']),
+                title: Text(
+                  widget.maquinas[i]['nombre'],
+                  style: const TextStyle(color: AppTheme.textPrimary),
+                ),
                 onTap: () => _seleccionarMaquina(widget.maquinas[i]),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textSecondary,
+                ),
               ),
             ),
     );
