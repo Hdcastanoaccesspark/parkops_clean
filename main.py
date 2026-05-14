@@ -200,34 +200,29 @@ def generar_pdf(solicitud_id: int):
     pdf.set_fill_color(*azul)
     pdf.rect(0, 0, 210, 45, 'F')
 
-    # Logo ParkOPS (izquierda)
-    logo_parkops_path = None
+    # Logo ParkOPS
     try:
-        logo_url = 'https://i.imgur.com/QZhOFhX.png'   # ← usa tu nuevo logo
+        logo_url = 'https://i.imgur.com/QZhOFhX.png'
         response = urllib.request.urlopen(logo_url)
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
             tmp.write(response.read())
             logo_parkops_path = tmp.name
+        pdf.image(logo_parkops_path, x=10, y=5, w=30)
+        os.unlink(logo_parkops_path)
     except Exception as e:
         print(f"No se pudo descargar logo ParkOPS: {e}")
 
-    if logo_parkops_path:
-        pdf.image(logo_parkops_path, x=10, y=5, w=30)
-        os.unlink(logo_parkops_path)
-
-    # Logo Accespark (derecha) — puedes descomentar y poner tu URL
-    # logo_accespark_path = None
-    # try:
-    #     url_accespark = 'https://i.imgur.com/WyyLdQw.png'
-    #     response = urllib.request.urlopen(url_accespark)
-    #     with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-    #         tmp.write(response.read())
-    #         logo_accespark_path = tmp.name
-    # except Exception as e:
-    #     print(f"No se pudo descargar logo Accespark: {e}")
-    # if logo_accespark_path:
-    #     pdf.image(logo_accespark_path, x=170, y=5, w=30)
-    #     os.unlink(logo_accespark_path)
+    # Logo Accespark (opcional)
+    try:
+        logo_accespark_url = 'https://i.imgur.com/WyyLdQw.png'
+        response = urllib.request.urlopen(logo_accespark_url)
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+            tmp.write(response.read())
+            logo_accespark_path = tmp.name
+        pdf.image(logo_accespark_path, x=170, y=5, w=30)
+        os.unlink(logo_accespark_path)
+    except Exception as e:
+        print(f"No se pudo descargar logo Accespark: {e}")
 
     # Título y metadatos
     pdf.set_y(10)
@@ -697,17 +692,24 @@ def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = For
         try:
             pdf_path = generar_pdf(solicitud_id)
             solicitud.pdf_path = pdf_path
-            db.execute("CREATE TABLE IF NOT EXISTS reportes (id SERIAL PRIMARY KEY, solicitud_id INTEGER REFERENCES solicitudes(id) ON DELETE CASCADE, pdf_url TEXT, fecha_creacion TIMESTAMPTZ DEFAULT now())")
+        except Exception as e:
+            print(f"Error generando PDF: {e}")
+            # Aún así continuamos, guardamos el cierre sin PDF
+            solicitud.pdf_path = None
+
+        # Guardar en reportes (siempre)
+        db.execute("CREATE TABLE IF NOT EXISTS reportes (id SERIAL PRIMARY KEY, solicitud_id INTEGER REFERENCES solicitudes(id) ON DELETE CASCADE, pdf_url TEXT, fecha_creacion TIMESTAMPTZ DEFAULT now())")
+        if solicitud.pdf_path:
             db.execute(
                 "INSERT INTO reportes (solicitud_id, pdf_url) VALUES (:sid, :url)",
-                {"sid": solicitud_id, "url": pdf_path}
+                {"sid": solicitud_id, "url": solicitud.pdf_path}
             )
+
+        # Enviar correo (si hay PDF)
+        if solicitud.pdf_path:
             cliente_db = db.query(User).filter(User.id == solicitud.cliente_id).first()
             if cliente_db:
-                enviar_correo_pdf(cliente_db.email or "h.castanoaccesspark@gmail.co", pdf_path, solicitud_id)
-        except Exception as e:
-            print(f"Error generando PDF o enviando correo: {e}")
-            traceback.print_exc()
+                enviar_correo_pdf(cliente_db.email or "h.castanoaccesspark@gmail.co", solicitud.pdf_path, solicitud_id)
 
         db.commit(); db.close()
         return {"mensaje": "Servicio finalizado, PDF generado"}
@@ -724,14 +726,18 @@ def descargar_pdf(solicitud_id: int, user=Depends(get_current_user)):
     if solicitud.pdf_path and os.path.exists(solicitud.pdf_path):
         db.close()
         return FileResponse(solicitud.pdf_path, media_type='application/pdf', filename=f'reporte_{solicitud_id}.pdf')
-    pdf_path = generar_pdf(solicitud_id)
-    solicitud.pdf_path = pdf_path
-    db.execute("CREATE TABLE IF NOT EXISTS reportes (id SERIAL PRIMARY KEY, solicitud_id INTEGER REFERENCES solicitudes(id) ON DELETE CASCADE, pdf_url TEXT, fecha_creacion TIMESTAMPTZ DEFAULT now())")
-    existe = db.execute("SELECT id FROM reportes WHERE solicitud_id = :sid", {"sid": solicitud_id}).first()
-    if not existe:
-        db.execute("INSERT INTO reportes (solicitud_id, pdf_url) VALUES (:sid, :url)", {"sid": solicitud_id, "url": pdf_path})
-    db.commit(); db.close()
-    return FileResponse(pdf_path, media_type='application/pdf', filename=f'reporte_{solicitud_id}.pdf')
+    try:
+        pdf_path = generar_pdf(solicitud_id)
+        solicitud.pdf_path = pdf_path
+        db.execute("CREATE TABLE IF NOT EXISTS reportes (id SERIAL PRIMARY KEY, solicitud_id INTEGER REFERENCES solicitudes(id) ON DELETE CASCADE, pdf_url TEXT, fecha_creacion TIMESTAMPTZ DEFAULT now())")
+        existe = db.execute("SELECT id FROM reportes WHERE solicitud_id = :sid", {"sid": solicitud_id}).first()
+        if not existe:
+            db.execute("INSERT INTO reportes (solicitud_id, pdf_url) VALUES (:sid, :url)", {"sid": solicitud_id, "url": pdf_path})
+        db.commit(); db.close()
+        return FileResponse(pdf_path, media_type='application/pdf', filename=f'reporte_{solicitud_id}.pdf')
+    except Exception as e:
+        db.close()
+        raise HTTPException(500, f"Error al generar PDF: {str(e)}")
 
 @app.get("/tecnicos")
 def listar_tecnicos(user=Depends(get_current_user)):
