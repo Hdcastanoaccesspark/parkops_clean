@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/cliente_dashboard.dart';
 import 'screens/tecnico_dashboard.dart';
 import 'screens/admin_dashboard.dart';
-import 'screens/lider_dashboard.dart'; // ← NUEVO IMPORT
+import 'screens/lider_dashboard.dart';
 import 'config.dart';
 import 'theme/app_theme.dart';
 import 'widgets/parkops_components.dart';
@@ -25,13 +25,12 @@ class MyApp extends StatelessWidget {
       '/cliente': (context) => const ClienteDashboard(),
       '/tecnico': (context) => const TecnicoDashboard(),
       '/admin': (context) => const AdminDashboard(),
-      '/lider': (context) => const LiderDashboard(), // ← NUEVA RUTA
+      '/lider': (context) => const LiderDashboard(),
     },
     debugShowCheckedModeBanner: false,
   );
 }
 
-// -------------------- SPLASH SCREEN --------------------
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
   @override
@@ -117,36 +116,6 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ),
             ),
-            Center(
-              child: AnimatedBuilder(
-                animation: _controller,
-                builder: (context, child) {
-                  return Transform.scale(
-                    scale: _scaleAnimation.value,
-                    child: Opacity(
-                      opacity: _fadeAnimation.value,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.primaryBlue.withOpacity(
-                                _fadeAnimation.value * 0.5,
-                              ),
-                              blurRadius: 30,
-                              spreadRadius: 10,
-                            ),
-                          ],
-                        ),
-                        child: Image.network(
-                          'https://i.imgur.com/dpfS4Xw.png',
-                          height: 120,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
             Positioned(
               bottom: 50,
               left: 0,
@@ -172,7 +141,6 @@ class _SplashScreenState extends State<SplashScreen>
   }
 }
 
-// -------------------- LOGIN SCREEN --------------------
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
   @override
@@ -264,18 +232,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Image.network(
-                          'https://i.imgur.com/dpfS4Xw.png',
-                          height: 60,
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'ParkOPS',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.textPrimary,
-                            fontFamily: 'Inter',
+                        // Logo circular grande
+                        ClipOval(
+                          child: Image.asset(
+                            'assets/logo_parkops.png',
+                            height: 120,
+                            width: 120,
+                            fit: BoxFit.cover,
                           ),
                         ),
                         const SizedBox(height: 32),
@@ -285,9 +248,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           keyboardType: TextInputType.emailAddress,
                         ),
                         const SizedBox(height: 16),
-                        ParkopsTextField(
-                          label: 'Contraseña',
+                        TextFormField(
                           controller: _pass,
+                          obscureText: true,
+                          style: const TextStyle(color: AppTheme.textPrimary),
+                          decoration: const InputDecoration(
+                            labelText: 'Contraseña',
+                          ),
                         ),
                         const SizedBox(height: 24),
                         if (_error != null)

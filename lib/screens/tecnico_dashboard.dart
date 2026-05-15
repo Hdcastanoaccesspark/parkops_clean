@@ -287,6 +287,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       '¿Confirma que desea aceptar esta visita?',
     ))
       return;
+
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
     final res = await http.post(
@@ -294,13 +295,34 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       headers: {'Authorization': 'Bearer $token'},
     );
     if (res.statusCode == 200) {
+      // Guardamos el parqueadero_id antes de refrescar la lista
+      int? parqueaderoId;
+      for (var s in _visitasAsignadas) {
+        if (s['id'] == id) {
+          parqueaderoId = s['parqueadero_id'];
+          break;
+        }
+      }
+      // Si no lo encontramos en las asignadas, buscamos en parqueaderos conocidos a través del cliente
+      if (parqueaderoId == null) {
+        // Podríamos obtener el parqueadero desde la respuesta del endpoint de solicitudes, pero no lo tenemos aquí.
+        // Como fallback, navegamos a un parqueadero por defecto o mostramos mensaje.
+        _msg(
+          'Solicitud aceptada, pero no se encontró el parqueadero asociado',
+          err: false,
+        );
+        _cargarVisitasAsignadas();
+        return;
+      }
+
       _cargarVisitasAsignadas();
       _msg('Solicitud aceptada', err: false);
-      final solicitud = _visitasAsignadas.firstWhere((s) => s['id'] == id);
-      final parqueaderoId = solicitud['parqueadero_id'];
-      if (parqueaderoId != null && _parqueaderos.isNotEmpty) {
+
+      // Navegar al parqueadero si está en la lista local
+      if (_parqueaderos.isNotEmpty) {
         final parqueadero = _parqueaderos.firstWhere(
           (p) => p['id'] == parqueaderoId,
+          orElse: () => _parqueaderos.first,
         );
         await Navigator.push(
           context,
@@ -310,9 +332,12 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         );
         _cargarParqueaderos();
         _cargarVisitasAsignadas();
+      } else {
+        _msg('No se pudo abrir el parqueadero', err: true);
       }
-    } else
+    } else {
       _msg('Error al aceptar: ${res.statusCode}');
+    }
   }
 
   Future<void> _devolverAPendiente(int id) async {

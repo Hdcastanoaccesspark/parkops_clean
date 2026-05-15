@@ -1,0 +1,236 @@
+<!-- ========================= -->
+<!-- ARCHIVO: index.html -->
+<!-- ========================= -->
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Park ops  - Parqueaderos</title>
+
+    <link rel="stylesheet" href="colores.css">
+</head>
+<body>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div>
+            <div class="logo-box">
+    <img src="logo.png" alt="ParkOps Logo">
+</div>
+                    <h2>Park ops</h2>
+                    <p>Parqueaderos</p>
+                </div>
+            </div>
+
+            <div class="menu">
+                <div class="menu-item active">Dashboard</div>
+                <div class="menu-item">Parqueaderos</div>
+                <div class="menu-item">Equipos</div>
+                <div class="menu-item">Reportes</div>
+                <div class="menu-item">Mantenimientos</div>
+                <div class="menu-item">Horas Extras</div>
+                <div class="menu-item">Usuarios</div>
+                <div class="menu-item">Administración</div>
+                <div class="menu-item">Configuración</div>
+            </div>
+        </div>
+
+        <div class="director-card">
+            <h3>Director de Soporte</h3>
+            <p><strong>MAURICIO AMADO</strong></p>
+
+          
+        </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+
+        <div class="header">
+            <div>
+                <h1>Dashboard</h1>
+                <p>Resumen general del sistema</p>
+            </div>
+
+            <div class="date-box">
+                📅 27 de mayo de 2024
+            </div>
+        </div>
+
+        <!-- LOGIN -->
+        <section class="login-box">
+            <h2>Login del Sistema</h2>
+
+            <div class="form-group">
+                <label>Correo Electrónico</label>
+                <input type="email" placeholder="MaoAmado@parqueaderos.com">
+            </div>
+
+            <div class="form-group">
+                <label>Contraseña</label>
+                <input type="password" placeholder="********">
+            </div>
+
+            <button class="btn">Ingresar</button>
+        </section>
+
+        <!-- CARDS -->
+        <section class="cards">
+
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <p>Reportes Abiertos</p>
+                        <h2>18</h2>
+                    </div>
+                    <div class="icon blue">📋</div>
+                </div>
+                <div class="details">Ver detalles →</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <p>Mantenimientos en Proceso</p>
+                        <h2>7</h2>
+                    </div>
+                    <div class="icon green">🔧</div>
+                </div>
+                <div class="details">Ver detalles →</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <p>Horas Extras</p>
+                        <h2>12.5</h2>
+                    </div>
+                    <div class="icon purple">🕓</div>
+                </div>
+                <div class="details">Ver detalles →</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <p>Parqueaderos</p>
+                        <h2>5</h2>
+                    </div>
+                    <div class="icon orange">🏬</div>
+                </div>
+                <div class="details">Ver detalles →</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <p>Equipos</p>
+                        <h2>32</h2>
+                    </div>
+                    <div class="icon cyan">🖥️</div>
+                </div>
+                <div class="details">Ver detalles →</div>
+            </div>
+
+        </section>
+
+        <!-- TABLAS -->
+        <section class="tables">
+
+            <div class="table-box">
+                <h2>Reportes Recientes</h2>
+
+                <table>
+                    <thead>
+                        <tr>
+                         <thead>
+    <tr>
+        <th>ID</th>
+        <th>Descripción</th>
+        <th>Urgencia</th>
+        <th>Técnico</th>
+        <th>Horario</th>
+        <th>Estado</th>
+    </tr>
+</thead>
+
+<tbody>
+
+    <tr>
+        <td>RPT-25</td>
+        <td>Cajero 1 Vatel</td>
+        <td><span class="badge alta">Alta</span></td>
+        <td>JESUS ORTEGON</td>
+        <td>7:00 AM - 5:00 PM</td>
+        <td><span class="badge abierto">Abierto</span></td>
+    </tr>
+
+    <tr>
+        <td>RPT-24</td>
+        <td>Terminal inicio</td>
+        <td><span class="badge media">Media</span></td>
+        <td>HERNAN DARIO</td>
+        <td>6:00 AM - 2:00 PM</td>
+        <td><span class="badge abierto">Abierto</span></td>
+    </tr>
+
+    <tr>
+        <td>RPT-23</td>
+        <td>Floresta</td>
+        <td><span class="badge baja">Baja</span></td>
+        <td>HUGO MORENO</td>
+        <td>8:00 AM - 6:00 PM</td>
+        <td><span class="badge proceso">En Proceso</span></td>
+    </tr>
+
+    <tr>
+        <td>RPT-22</td>
+        <td>Viva Fontibon</td>
+        <td><span class="badge alta">Alta</span></td>
+        <td>ROBERT CASTAÑO</td>
+        <td>7:00 AM - 5:00 PM</td>
+        <td><span class="badge abierto">Abierto</span></td>
+    </tr>
+
+<!-- </tbody> -->
+                </table>
+            </div>
+
+            <div class="table-box">
+                <h2>Información del Personal</h2>
+
+                <div class="staff-card">
+                    <h3>MAURICIO AMADO</h3>
+                    <p>Director de Soporte</p>
+                </div>
+
+                <div class="staff-card">
+                    <h3>JESUS ORTEGON</h3>
+                    <p>Técnico de mantenimiento</p>
+                </div>
+
+                <div class="staff-card">
+                    <h3>HERNAN DARIO</h3>
+                    <p>Técnico de mantenimiento</p>
+                </div>
+
+                <div class="staff-card">
+                    <h3>HUGO MORENO</h3>
+                    <p>Técnico de mantenimiento</p>
+                </div>
+
+                <div class="staff-card">
+                    <h3>ROBERT CASTAÑO</h3>
+                    <p>Técnico de mantenimiento</p>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+</body>
+</html>
+
