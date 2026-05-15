@@ -60,6 +60,7 @@ class Solicitud(Base):
     estado = Column(String)
     tecnico_id = Column(Integer, nullable=True)
     maquina_id = Column(Integer, nullable=True)
+    parqueadero_id = Column(Integer, nullable=True)  # NUEVO: relación con parqueadero
     fecha_creacion = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     fecha_asignacion = Column(DateTime, nullable=True)
     fecha_aceptacion = Column(DateTime, nullable=True)
@@ -180,7 +181,9 @@ def generar_pdf(solicitud_id: int):
     cliente = db.query(User).filter(User.id == solicitud.cliente_id).first()
     tecnico = db.query(User).filter(User.id == solicitud.tecnico_id).first() if solicitud.tecnico_id else None
     parqueadero = None
-    if solicitud.maquina_id:
+    if solicitud.parqueadero_id:
+        parqueadero = db.query(Parqueadero).filter(Parqueadero.id == solicitud.parqueadero_id).first()
+    elif solicitud.maquina_id:
         maquina = db.query(Maquina).filter(Maquina.id == solicitud.maquina_id).first()
         if maquina:
             parqueadero = db.query(Parqueadero).filter(Parqueadero.id == maquina.parqueadero_id).first()
@@ -538,6 +541,19 @@ def crear_solicitud(
             raise HTTPException(403, "No autorizado")
         db = SessionLocal()
         origen = 'cliente' if user.rol == 'cliente' else 'tecnico'
+        # Determinar parqueadero_id
+        parqueadero_id = None
+        if origen == 'cliente' and user.parqueadero_id:
+            parqueadero_id = user.parqueadero_id
+        elif maquina_id and maquina_id.strip() and maquina_id != 'None':
+            try:
+                maq_id = int(maquina_id)
+                maquina = db.query(Maquina).filter(Maquina.id == maq_id).first()
+                if maquina:
+                    parqueadero_id = maquina.parqueadero_id
+            except:
+                pass
+
         tecnicos = db.query(User).filter(User.rol == 'tecnico', User.disponible == True).all()
         if tecnicos and origen == 'cliente':
             tecnico = min(tecnicos, key=lambda t: distancia(lat, lon, t.lat or 0, t.lon or 0))
@@ -555,7 +571,7 @@ def crear_solicitud(
             cliente_id=user.id, descripcion=descripcion, lat=lat, lon=lon, tipo=tipo,
             estado=estado, tecnico_id=tecnico.id if tecnico else None,
             maquina_id=maq_id, fecha_asignacion=fecha_asignacion,
-            fotos=fotos, videos=videos, origen=origen)
+            fotos=fotos, videos=videos, origen=origen, parqueadero_id=parqueadero_id)
         db.add(solicitud)
         db.commit()
         solicitud_id = solicitud.id
@@ -585,19 +601,28 @@ def listar_solicitudes(user=Depends(get_current_user)):
         result = []
         for s in solicitudes:
             cliente_nombre = None
-            parqueadero_id = None
+            parqueadero_nombre = None
+            parqueadero_id = s.parqueadero_id
             if s.cliente_id:
                 db2 = SessionLocal()
                 cliente = db2.query(User).filter(User.id == s.cliente_id).first()
                 if cliente:
                     cliente_nombre = cliente.nombre
-                    parqueadero_id = cliente.parqueadero_id
+                    if parqueadero_id is None and cliente.parqueadero_id:
+                        parqueadero_id = cliente.parqueadero_id
+                db2.close()
+            if parqueadero_id:
+                db2 = SessionLocal()
+                parq = db2.query(Parqueadero).filter(Parqueadero.id == parqueadero_id).first()
+                if parq:
+                    parqueadero_nombre = parq.nombre
                 db2.close()
             result.append({
                 "id": s.id, "descripcion": s.descripcion, "estado": s.estado, "tipo": s.tipo,
                 "cliente_nombre": cliente_nombre, "tecnico_id": s.tecnico_id,
                 "origen": s.origen,
-                "parqueadero_id": parqueadero_id
+                "parqueadero_id": parqueadero_id,
+                "parqueadero_nombre": parqueadero_nombre
             })
         db.close()
         return result
@@ -667,25 +692,53 @@ def iniciar_servicio(solicitud_id: int, lat: float = Form(...), lon: float = For
         raise HTTPException(500, f"Error al iniciar servicio: {str(e)}")
 
 @app.post("/tecnico/cerrar_solicitud/{solicitud_id}")
-def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = Form(...), user=Depends(get_current_user)):
+def cerrar_solicitud(
+    solicitud_id: int,
+    items: str = Form(...),
+    firma: str = Form(...),
+    fotos: str = Form(""),
+    user=Depends(get_current_user)
+):
     try:
-        if user.rol != 'tecnico': raise HTTPException(403, "No autorizado")
+        if user.rol != 'tecnico':
+            raise HTTPException(403, "No autorizado")
         db = SessionLocal()
         solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
         if not solicitud or solicitud.estado in ['finalizada', 'cancelada']:
-            db.close(); raise HTTPException(400, "La solicitud ya fue cerrada o cancelada")
+            db.close()
+            raise HTTPException(400, "La solicitud ya fue cerrada o cancelada")
 
-        # Permitir cerrar si el técnico es el asignado, o si es el creador de un reporte propio (origen='tecnico')
+        # Permitir cerrar si el técnico es el asignado, o si es el creador de un reporte propio
         if solicitud.tecnico_id != user.id and not (solicitud.cliente_id == user.id and solicitud.origen == 'tecnico'):
-            db.close(); raise HTTPException(403, "No tienes permiso para cerrar esta solicitud")
+            db.close()
+            raise HTTPException(403, "No tienes permiso para cerrar esta solicitud")
 
-        # Si no tiene técnico asignado (reporte propio), se asigna al técnico que lo está cerrando
+        # Asignar técnico si no lo tenía
         if solicitud.tecnico_id is None:
             solicitud.tecnico_id = user.id
 
+        # Si la solicitud no tiene parqueadero_id, intentar obtenerlo de la máquina o del cliente
+        if solicitud.parqueadero_id is None:
+            if solicitud.maquina_id:
+                maquina = db.query(Maquina).filter(Maquina.id == solicitud.maquina_id).first()
+                if maquina:
+                    solicitud.parqueadero_id = maquina.parqueadero_id
+            else:
+                cliente = db.query(User).filter(User.id == solicitud.cliente_id).first()
+                if cliente and cliente.parqueadero_id:
+                    solicitud.parqueadero_id = cliente.parqueadero_id
+
+        # Preservar items original si el enviado es el genérico "Reporte completado" y ya hay items
+        if items == "Reporte completado" and solicitud.items and solicitud.items != "Reporte completado":
+            # No sobrescribir, mantener el diagnóstico real
+            pass
+        else:
+            solicitud.items = items
+
         solicitud.estado = 'finalizada'
-        solicitud.items = items
         solicitud.firma = firma
+        if fotos:
+            solicitud.fotos = fotos
         solicitud.fecha_fin = datetime.now(timezone.utc)
         user.estado = 'libre'
 
@@ -694,10 +747,9 @@ def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = For
             solicitud.pdf_path = pdf_path
         except Exception as e:
             print(f"Error generando PDF: {e}")
-            # Aún así continuamos, guardamos el cierre sin PDF
             solicitud.pdf_path = None
 
-        # Guardar en reportes (siempre)
+        # Guardar en tabla reportes (siempre)
         db.execute("CREATE TABLE IF NOT EXISTS reportes (id SERIAL PRIMARY KEY, solicitud_id INTEGER REFERENCES solicitudes(id) ON DELETE CASCADE, pdf_url TEXT, fecha_creacion TIMESTAMPTZ DEFAULT now())")
         if solicitud.pdf_path:
             db.execute(
@@ -711,7 +763,8 @@ def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = For
             if cliente_db:
                 enviar_correo_pdf(cliente_db.email or "h.castanoaccesspark@gmail.co", solicitud.pdf_path, solicitud_id)
 
-        db.commit(); db.close()
+        db.commit()
+        db.close()
         return {"mensaje": "Servicio finalizado, PDF generado"}
     except Exception as e:
         traceback.print_exc()
@@ -886,6 +939,63 @@ def mis_reportes_tecnico(parqueadero_id: int, user=Depends(get_current_user)):
     ).order_by(Solicitud.fecha_creacion.desc()).all()
     db.close()
     return [{"id": r.id, "descripcion": r.descripcion, "estado": r.estado, "tipo": r.tipo} for r in reportes]
+
+# NUEVO: Reportes completados para el técnico (últimos 10)
+@app.get("/tecnico/mis_reportes_completados")
+def mis_reportes_completados(user=Depends(get_current_user)):
+    if user.rol != 'tecnico':
+        raise HTTPException(403, "No autorizado")
+    db = SessionLocal()
+    reportes = db.query(Solicitud).filter(
+        (Solicitud.tecnico_id == user.id) | ((Solicitud.cliente_id == user.id) & (Solicitud.origen == 'tecnico')),
+        Solicitud.estado == 'finalizada'
+    ).order_by(Solicitud.fecha_fin.desc()).limit(10).all()
+    resultado = []
+    for r in reportes:
+        parqueadero_nombre = None
+        if r.parqueadero_id:
+            parq = db.query(Parqueadero).filter(Parqueadero.id == r.parqueadero_id).first()
+            if parq:
+                parqueadero_nombre = parq.nombre
+        resultado.append({
+            "id": r.id,
+            "descripcion": r.descripcion,
+            "tipo": r.tipo,
+            "fecha_fin": r.fecha_fin.isoformat() if r.fecha_fin else None,
+            "parqueadero_nombre": parqueadero_nombre,
+            "pdf_url": f"/reporte/{r.id}/pdf"
+        })
+    db.close()
+    return resultado
+
+# NUEVO: Todos los reportes para coordinador/líder
+@app.get("/coordinador/todos_reportes")
+def todos_reportes(user=Depends(get_current_user)):
+    if user.rol not in ['coordinador', 'lider']:
+        raise HTTPException(403, "No autorizado")
+    db = SessionLocal()
+    reportes = db.query(Solicitud).filter(Solicitud.estado == 'finalizada').order_by(Solicitud.fecha_fin.desc()).all()
+    resultado = []
+    for r in reportes:
+        tecnico = db.query(User).filter(User.id == r.tecnico_id).first()
+        cliente = db.query(User).filter(User.id == r.cliente_id).first()
+        parqueadero_nombre = None
+        if r.parqueadero_id:
+            parq = db.query(Parqueadero).filter(Parqueadero.id == r.parqueadero_id).first()
+            if parq:
+                parqueadero_nombre = parq.nombre
+        resultado.append({
+            "id": r.id,
+            "descripcion": r.descripcion,
+            "tipo": r.tipo,
+            "fecha_fin": r.fecha_fin.isoformat() if r.fecha_fin else None,
+            "tecnico_nombre": tecnico.nombre if tecnico else "No asignado",
+            "cliente_nombre": cliente.nombre if cliente else "Desconocido",
+            "parqueadero_nombre": parqueadero_nombre,
+            "pdf_url": f"/reporte/{r.id}/pdf"
+        })
+    db.close()
+    return resultado
 
 @app.post("/admin/insertar_datos_prueba")
 def insertar_datos_prueba(user=Depends(get_current_user)):
