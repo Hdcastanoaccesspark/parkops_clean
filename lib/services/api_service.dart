@@ -1,7 +1,7 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-const String API_BASE_URL = "http://192.168.10.109:10000";
+const String API_BASE_URL = "https://parkops-backend.onrender.com";
 
 class ApiService {
   static Future<Map<String, dynamic>?> login(

@@ -1,10 +1,15 @@
 import 'dart:ui';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
+import '../theme/app_theme.dart';
+import '../widgets/parkops_components.dart';
 import '../theme/app_theme.dart';
 import '../widgets/parkops_components.dart';
 
@@ -218,12 +223,27 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Future<void> _descargarPdf(int solicitudId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
     final url = '$API_BASE_URL/reporte/$solicitudId/pdf';
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      _msg('No se pudo abrir el enlace');
+
+    try {
+      _msg('Descargando PDF...');
+      final res = await http.get(
+        Uri.parse(url),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (res.statusCode == 200) {
+        final dir = await getTemporaryDirectory();
+        final file = File('${dir.path}/reporte_$solicitudId.pdf');
+        await file.writeAsBytes(res.bodyBytes);
+        await OpenFile.open(file.path);
+      } else {
+        _msg('Error al descargar el PDF (${res.statusCode})');
+      }
+    } catch (e) {
+      _msg('No se pudo descargar el PDF: $e');
     }
   }
 
