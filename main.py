@@ -203,29 +203,27 @@ def generar_pdf(solicitud_id: int):
     pdf.set_fill_color(*azul)
     pdf.rect(0, 0, 210, 45, 'F')
 
-    # Logo ParkOPS
+    # Logo ParkOPS (local)
     try:
-        logo_url = 'https://i.imgur.com/QZhOFhX.png'
-        response = urllib.request.urlopen(logo_url)
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-            tmp.write(response.read())
-            logo_parkops_path = tmp.name
-        pdf.image(logo_parkops_path, x=10, y=5, w=30)
-        os.unlink(logo_parkops_path)
+        logo_parkops_path = os.path.join(os.path.dirname(__file__), "static", "parkops_logo.png")
+        if os.path.exists(logo_parkops_path):
+            pdf.image(logo_parkops_path, x=10, y=5, w=30)
+        else:
+            print("Logo ParkOPS no encontrado en static/")
     except Exception as e:
-        print(f"No se pudo descargar logo ParkOPS: {e}")
+        print(f"No se pudo cargar logo ParkOPS local: {e}")
 
+    # Logo Accespark (local)
     try:
-        logo_accespark_url = 'https://i.imgur.com/WyyLdQw.png'
-        response = urllib.request.urlopen(logo_accespark_url)
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-            tmp.write(response.read())
-            logo_accespark_path = tmp.name
-        pdf.image(logo_accespark_path, x=170, y=5, w=30)
-        os.unlink(logo_accespark_path)
+        logo_accespark_path = os.path.join(os.path.dirname(__file__), "static", "accespark_logo.png")
+        if os.path.exists(logo_accespark_path):
+            pdf.image(logo_accespark_path, x=170, y=5, w=30)
+        else:
+            print("Logo Accespark no encontrado en static/")
     except Exception as e:
-        print(f"No se pudo descargar logo Accespark: {e}")
+        print(f"No se pudo cargar logo Accespark local: {e}")
 
+    # Título y metadatos
     pdf.set_y(10)
     pdf.set_x(50)
     pdf.set_font('Helvetica', 'B', 20)
@@ -324,58 +322,36 @@ def generar_pdf(solicitud_id: int):
 
     pdf.ln(6)
 
-    # EVIDENCIAS FOTOGRÁFICAS
+    # ---------- EVIDENCIAS FOTOGRÁFICAS (todas juntas) ----------
     if solicitud.fotos:
         pdf.set_font('Helvetica', 'B', 12)
         pdf.set_text_color(*azul)
-        pdf.cell(0, 8, txt='EVIDENCIAS FOTOGRAFICAS', ln=True)
+        pdf.cell(0, 8, txt='EVIDENCIAS FOTOGRÁFICAS', ln=True)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(4)
 
         fotos_list = [f for f in solicitud.fotos.split(',') if f]
-        mitad = max(1, len(fotos_list) // 2) if len(fotos_list) > 1 else 0
-        fotos_antes = fotos_list[:mitad] if mitad > 0 else fotos_list[:1]
-        fotos_despues = fotos_list[mitad:] if len(fotos_list) > 1 else []
-        if len(fotos_list) == 1:
-            fotos_antes = fotos_list
-            fotos_despues = []
-
-        def insertar_galeria(label, lista, x_inicial, y_actual):
-            if not lista:
-                return y_actual
-            pdf.set_font('Helvetica', 'B', 10)
-            pdf.set_text_color(0,0,0)
-            pdf.set_xy(x_inicial, y_actual)
-            pdf.cell(0, 7, txt=label, ln=True)
-            y_actual += 7
-            ancho_img = 80
-            alto_img = 60
-            x = x_inicial
-            y = y_actual
-            for idx, foto_base64 in enumerate(lista[:4]):
-                if idx % 2 == 0 and idx != 0:
-                    x = x_inicial
-                    y += alto_img + 4
-                try:
-                    img_bytes = base64.b64decode(foto_base64)
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as img_file:
-                        img_file.write(img_bytes)
-                        img_path = img_file.name
-                    pdf.image(img_path, x=x, y=y, w=ancho_img, h=alto_img)
-                    os.unlink(img_path)
-                except Exception as e:
-                    pdf.set_xy(x, y+10)
-                    pdf.set_font('Helvetica', '', 8)
-                    pdf.cell(ancho_img, 5, txt='Error imagen', border=0)
-                x += ancho_img + 4
-            return y + alto_img + 6
-
-        y_pos = pdf.get_y()
-        y_pos = insertar_galeria('ANTES', fotos_antes, 10, y_pos)
-        if fotos_despues:
-            y_pos += 4
-            y_pos = insertar_galeria('DESPUES', fotos_despues, 10, y_pos)
-        pdf.set_y(y_pos + 4)
+        ancho_img = 80
+        alto_img = 60
+        x = 10
+        y = pdf.get_y()
+        for idx, foto_base64 in enumerate(fotos_list[:8]):  # máximo 8 fotos
+            if idx % 2 == 0 and idx != 0:
+                x = 10
+                y += alto_img + 4
+            try:
+                img_bytes = base64.b64decode(foto_base64)
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as img_file:
+                    img_file.write(img_bytes)
+                    img_path = img_file.name
+                pdf.image(img_path, x=x, y=y, w=ancho_img, h=alto_img)
+                os.unlink(img_path)
+            except Exception as e:
+                pdf.set_xy(x, y+10)
+                pdf.set_font('Helvetica', '', 8)
+                pdf.cell(ancho_img, 5, txt='Error imagen', border=0)
+            x += ancho_img + 4
+        pdf.set_y(y + alto_img + 10)
 
     # COTIZACIÓN
     cotizacion_texto = ''
@@ -403,6 +379,7 @@ def generar_pdf(solicitud_id: int):
 
     if solicitud.firma:
         try:
+            print(f"Decodificando firma de longitud {len(solicitud.firma)}")
             firma_bytes = base64.b64decode(solicitud.firma)
             with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as firma_file:
                 firma_file.write(firma_bytes)
@@ -411,8 +388,9 @@ def generar_pdf(solicitud_id: int):
             os.unlink(firma_path)
             pdf.set_y(pdf.get_y() + 35)
         except Exception as e:
+            print(f"Error decodificando firma: {e}")
             pdf.set_font('Helvetica', '', 10)
-            pdf.cell(0, 8, txt='Firma no disponible', ln=True)
+            pdf.cell(0, 8, txt='Firma no disponible (error de decodificación)', ln=True)
             pdf.ln(4)
     else:
         pdf.set_font('Helvetica', '', 10)
@@ -760,7 +738,7 @@ def cerrar_solicitud(
         traceback.print_exc()
         raise HTTPException(500, f"Error al cerrar solicitud: {str(e)}")
 
-@app.get("/solicitudes/{solicitud_id}")  # NUEVO ENDPOINT
+@app.get("/solicitudes/{solicitud_id}")
 def obtener_solicitud(solicitud_id: int, user=Depends(get_current_user)):
     db = SessionLocal()
     solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
@@ -806,45 +784,65 @@ def listar_tecnicos(user=Depends(get_current_user)):
     db = SessionLocal()
     tecnicos = db.query(User).filter(User.rol == 'tecnico').all()
     db.close()
-    return [{"id": t.id, "nombre": t.nombre, "disponible": t.disponible, "estado": t.estado} for t in tecnicos]
+    return [{"id": t.id, "nombre": t.nombre, "disponible": t.disponible, "estado": t.estado, "lat": t.lat, "lon": t.lon} for t in tecnicos]
 
 @app.put("/solicitudes/{solicitud_id}/asignar")
 def asignar_tecnico(solicitud_id: int, tecnico_id: int = Form(...), user=Depends(get_current_user)):
     if user.rol not in ['coordinador', 'lider']:
         raise HTTPException(403, "No autorizado")
     db = SessionLocal()
-    solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
-    if not solicitud:
-        db.close(); raise HTTPException(404, "Solicitud no encontrada")
-    if solicitud.estado not in ['pendiente', 'asignada']:
-        db.close(); raise HTTPException(400, "La solicitud ya fue aceptada o finalizada")
-    tecnico = db.query(User).filter(User.id == tecnico_id, User.rol == 'tecnico').first()
-    if not tecnico:
-        db.close(); raise HTTPException(404, "Técnico no encontrado")
-    solicitud.tecnico_id = tecnico_id
-    solicitud.estado = 'asignada'
-    solicitud.fecha_asignacion = datetime.now(timezone.utc)
-    db.commit(); db.close()
-    return {"mensaje": f"Solicitud asignada a {tecnico.nombre}"}
+    try:
+        solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
+        if not solicitud:
+            raise HTTPException(404, "Solicitud no encontrada")
+        if solicitud.estado not in ['pendiente', 'asignada']:
+            raise HTTPException(400, "La solicitud ya fue aceptada o finalizada")
+        tecnico = db.query(User).filter(User.id == tecnico_id, User.rol == 'tecnico').first()
+        if not tecnico:
+            raise HTTPException(404, "Técnico no encontrado")
+        tecnico_nombre = tecnico.nombre
+        solicitud.tecnico_id = tecnico_id
+        solicitud.estado = 'asignada'
+        solicitud.fecha_asignacion = datetime.now(timezone.utc)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error interno: {str(e)}")
+    finally:
+        db.close()
+    return {"mensaje": f"Solicitud asignada a {tecnico_nombre}"}
 
 @app.put("/solicitudes/{solicitud_id}/reasignar")
 def reasignar_tecnico(solicitud_id: int, nuevo_tecnico_id: int = Form(...), user=Depends(get_current_user)):
     if user.rol not in ['coordinador', 'lider']:
         raise HTTPException(403, "No autorizado")
     db = SessionLocal()
-    solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
-    if not solicitud:
-        db.close(); raise HTTPException(404, "Solicitud no encontrada")
-    if solicitud.estado in ['finalizada', 'cancelada']:
-        db.close(); raise HTTPException(400, "No se puede reasignar una solicitud finalizada")
-    nuevo_tec = db.query(User).filter(User.id == nuevo_tecnico_id, User.rol == 'tecnico').first()
-    if not nuevo_tec:
-        db.close(); raise HTTPException(404, "Técnico no encontrado")
-    solicitud.tecnico_id = nuevo_tecnico_id
-    solicitud.estado = 'asignada'
-    solicitud.fecha_asignacion = datetime.now(timezone.utc)
-    db.commit(); db.close()
-    return {"mensaje": f"Solicitud reasignada a {nuevo_tec.nombre}"}
+    try:
+        solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
+        if not solicitud:
+            raise HTTPException(404, "Solicitud no encontrada")
+        if solicitud.estado in ['finalizada', 'cancelada']:
+            raise HTTPException(400, "No se puede reasignar una solicitud finalizada")
+        nuevo_tec = db.query(User).filter(User.id == nuevo_tecnico_id, User.rol == 'tecnico').first()
+        if not nuevo_tec:
+            raise HTTPException(404, "Técnico no encontrado")
+        tecnico_nombre = nuevo_tec.nombre
+        solicitud.tecnico_id = nuevo_tecnico_id
+        solicitud.estado = 'asignada'
+        solicitud.fecha_asignacion = datetime.now(timezone.utc)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error interno: {str(e)}")
+    finally:
+        db.close()
+    return {"mensaje": f"Solicitud reasignada a {tecnico_nombre}"}
 
 @app.post("/tecnico/devolver_a_pendiente/{solicitud_id}")
 def devolver_a_pendiente(solicitud_id: int, motivo: str = Form(...), user=Depends(get_current_user)):
