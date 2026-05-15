@@ -32,13 +32,14 @@ class _PerfilTecnicoScreenState extends State<PerfilTecnicoScreen> {
         Uri.parse('$API_BASE_URL/usuarios/$userId'),
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (res.statusCode == 200)
+      if (res.statusCode == 200) {
         setState(() {
           _perfil = jsonDecode(res.body);
           _cargando = false;
         });
-      else
+      } else {
         setState(() => _cargando = false);
+      }
     } catch (e) {
       setState(() => _cargando = false);
     }

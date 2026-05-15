@@ -73,9 +73,9 @@ class _CorrectivoPresencialScreenState
     final f = await ImagePicker().pickImage(source: ImageSource.camera);
     if (f != null) {
       final b = await f.readAsBytes();
-      if (cat == 'antes')
+      if (cat == 'antes') {
         _fotosAntes.add(base64Encode(b));
-      else if (cat == 'despues')
+      } else if (cat == 'despues')
         _fotosDespues.add(base64Encode(b));
       else
         _fotosCotizacion.add(base64Encode(b));
@@ -231,11 +231,12 @@ class _CorrectivoPresencialScreenState
           ),
         ),
       );
-      if (rep != null && rep.isNotEmpty)
+      if (rep != null && rep.isNotEmpty) {
         setState(() {
           _requiereCotizacion = true;
           _cotizacionRepuesto = rep;
         });
+      }
     }
   }
 
@@ -302,8 +303,9 @@ class _CorrectivoPresencialScreenState
         final data = jsonDecode(res.body);
         _msg('Reporte guardado', err: false);
         Navigator.pop(context, data['solicitud_id']);
-      } else
+      } else {
         _msg('Error: ${res.statusCode}');
+      }
     } catch (e) {
       _msg('Error: $e');
     } finally {
@@ -367,7 +369,7 @@ class _CorrectivoPresencialScreenState
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            value: _fallaSeleccionada,
+            initialValue: _fallaSeleccionada,
             hint: const Text(
               'Selecciona falla',
               style: TextStyle(color: AppTheme.textSecondary),

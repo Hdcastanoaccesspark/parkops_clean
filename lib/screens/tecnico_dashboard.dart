@@ -110,8 +110,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (!await _confirmar(
       'Iniciar jornada',
       '¿Está seguro de que desea iniciar la jornada laboral?',
-    ))
+    )) {
       return;
+    }
     setState(() => _cargandoJornada = true);
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -127,8 +128,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       if (res.statusCode == 200) {
         setState(() => _jornadaActiva = true);
         _msg('Jornada iniciada', err: false);
-      } else
+      } else {
         _msg('Error al iniciar jornada: ${res.statusCode}');
+      }
     } catch (e) {
       _msg('Error GPS: $e');
     } finally {
@@ -140,8 +142,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (!await _confirmar(
       'Finalizar jornada',
       '¿Está seguro de que desea finalizar la jornada laboral?',
-    ))
+    )) {
       return;
+    }
     setState(() => _cargandoJornada = true);
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -162,8 +165,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           _laborPausada = false;
         });
         _msg('Jornada finalizada', err: false);
-      } else
+      } else {
         _msg('Error al finalizar jornada: ${res.statusCode}');
+      }
     } catch (e) {
       _msg('Error GPS: $e');
     } finally {
@@ -172,8 +176,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   }
 
   Future<void> _pausarJornada() async {
-    if (!await _confirmar('Pausar jornada', '¿Desea pausar la jornada?'))
+    if (!await _confirmar('Pausar jornada', '¿Desea pausar la jornada?')) {
       return;
+    }
     setState(() {
       _jornadaPausada = true;
       if (_parqueaderoLaborNombre != null) _laborPausada = true;
@@ -182,8 +187,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   }
 
   Future<void> _reanudarJornada() async {
-    if (!await _confirmar('Reanudar jornada', '¿Desea reanudar la jornada?'))
+    if (!await _confirmar('Reanudar jornada', '¿Desea reanudar la jornada?')) {
       return;
+    }
     setState(() {
       _jornadaPausada = false;
       if (_parqueaderoLaborNombre != null) _laborPausada = false;
@@ -210,16 +216,17 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         Uri.parse('$API_BASE_URL/parqueaderos'),
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (res.statusCode == 200)
+      if (res.statusCode == 200) {
         setState(() {
           _parqueaderos = jsonDecode(res.body);
           _cargandoParqueaderos = false;
         });
-      else
+      } else {
         setState(() {
           _cargandoParqueaderos = false;
           _errorParqueaderos = 'HTTP ${res.statusCode}';
         });
+      }
     } catch (e) {
       setState(() {
         _cargandoParqueaderos = false;
@@ -260,11 +267,12 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
               .toList();
           _cargandoVisitas = false;
         });
-      } else
+      } else {
         setState(() {
           _cargandoVisitas = false;
           _errorVisitas = 'HTTP ${res.statusCode}';
         });
+      }
     } catch (e) {
       setState(() {
         _cargandoVisitas = false;
@@ -285,8 +293,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (!await _confirmar(
       'Aceptar solicitud',
       '¿Confirma que desea aceptar esta visita?',
-    ))
+    )) {
       return;
+    }
 
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
@@ -376,8 +385,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (res.statusCode == 200) {
       _cargarVisitasAsignadas();
       _msg('Solicitud devuelta a pendiente', err: false);
-    } else
+    } else {
       _msg('Error al devolver: ${res.statusCode}');
+    }
   }
 
   Future<void> _entrarAParqueadero(Map<String, dynamic> p) async {
@@ -392,8 +402,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (!await _confirmar(
       'Iniciar labor',
       '¿Desea iniciar labor en ${p['nombre']}?',
-    ))
+    )) {
       return;
+    }
     try {
       await Geolocator.getCurrentPosition();
     } catch (_) {}

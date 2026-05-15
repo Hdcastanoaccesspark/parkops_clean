@@ -207,7 +207,7 @@ class NuevaSolicitudScreenState extends State<NuevaSolicitudScreen> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _maquinaSeleccionada,
+              initialValue: _maquinaSeleccionada,
               hint: const Text(
                 'Selecciona máquina (opcional)',
                 style: TextStyle(color: AppTheme.textSecondary),
