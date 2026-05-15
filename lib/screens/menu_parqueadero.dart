@@ -64,7 +64,11 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
   Future<void> _recuperarReporteActivo() async {
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getInt('solicitudActivaId_${widget.parqueadero['id']}');
-    if (id != null) setState(() => _solicitudActivaId = id);
+    if (id != null) {
+      setState(() {
+        _solicitudActivaId = id;
+      });
+    }
   }
 
   Future<void> _guardarReporteActivo() async {
@@ -89,8 +93,11 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
         ),
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (res.statusCode == 200)
-        setState(() => _misReportes = jsonDecode(res.body));
+      if (res.statusCode == 200) {
+        setState(() {
+          _misReportes = jsonDecode(res.body);
+        });
+      }
     } catch (e) {
       print('Error cargando mis reportes: $e');
     }
@@ -107,8 +114,11 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
         ),
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (res.statusCode == 200)
-        setState(() => _reportesParqueadero = jsonDecode(res.body));
+      if (res.statusCode == 200) {
+        setState(() {
+          _reportesParqueadero = jsonDecode(res.body);
+        });
+      }
     } catch (e) {
       print('Error cargando reportes del parqueadero: $e');
     }
@@ -366,7 +376,9 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
     );
     if (res.statusCode == 200) {
       _msg('Labor finalizada. Reporte PDF generado.', err: false);
-      setState(() => _solicitudActivaId = null);
+      setState(() {
+        _solicitudActivaId = null;
+      });
       await _guardarReporteActivo();
       _cargarMisReportes();
       _cargarReportesParqueadero();
@@ -527,6 +539,8 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
                               itemBuilder: (_, i) {
                                 if (i < _misReportes.length) {
                                   final reporte = _misReportes[i];
+                                  final bool esFinalizada =
+                                      reporte['estado'] == 'finalizada';
                                   return ListTile(
                                     title: Text(
                                       'Propio: ${reporte['tipo']}',
@@ -546,7 +560,32 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
                                         ParkopsStatusBadge(
                                           status: reporte['estado'],
                                         ),
-                                        if (reporte['estado'] == 'finalizada')
+                                        const SizedBox(width: 8),
+                                        if (!esFinalizada)
+                                          ElevatedButton(
+                                            onPressed: () {
+                                              setState(
+                                                () => _solicitudActivaId =
+                                                    reporte['id'],
+                                              );
+                                              _guardarReporteActivo();
+                                              _finalizar(); // lleva directamente a la firma
+                                            },
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor:
+                                                  AppTheme.primaryBlue,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 6,
+                                                  ),
+                                              textStyle: const TextStyle(
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            child: const Text('Continuar'),
+                                          ),
+                                        if (esFinalizada)
                                           IconButton(
                                             icon: const Icon(
                                               Icons.download,

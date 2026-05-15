@@ -1,4 +1,4 @@
-import 'dart:ui'; // ← NECESARIO para ImageFilter
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -21,22 +21,25 @@ class _AdminDashboardState extends State<AdminDashboard> {
   String? _error;
   String _nombre = 'Coordinador';
   String _filtroEstado = 'todos';
-  String _filtroCiudad = 'todas';
 
   List<dynamic> get _solicitudesFiltradas {
     return _solicitudes.where((s) {
-      bool estadoOk = _filtroEstado == 'todos' || s['estado'] == _filtroEstado;
-      bool ciudadOk = _filtroCiudad == 'todas';
-      return estadoOk && ciudadOk;
+      return _filtroEstado == 'todos' || s['estado'] == _filtroEstado;
     }).toList();
   }
 
-  int get _tecnicosActivos => _tecnicos.length;
+  int get _tecnicosActivos {
+    if (_tecnicos.isEmpty) return 0;
+    // Si el campo 'disponible' existe, contar los activos; si no, mostrar el total
+    if (_tecnicos.first is Map && _tecnicos.first.containsKey('disponible')) {
+      return _tecnicos.where((t) => t['disponible'] == true).length;
+    }
+    return _tecnicos.length;
+  }
+
   int get _ticketsAbiertos => _solicitudes
       .where((s) => s['estado'] != 'finalizada' && s['estado'] != 'cancelada')
       .length;
-  String get _slaPromedio => '—';
-  int get _incidentesCriticos => 0;
 
   @override
   void initState() {
@@ -84,7 +87,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       } else {
         setState(() {
           _loading = false;
-          _error = 'Error al cargar datos';
+          _error =
+              'Error al cargar datos (código ${resSol.statusCode} / ${resTec.statusCode})';
         });
       }
     } catch (e) {
@@ -108,7 +112,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             itemBuilder: (_, i) => ListTile(
               title: Text(_tecnicos[i]['nombre']),
               subtitle: Text(
-                _tecnicos[i]['disponible'] == true
+                (_tecnicos[i]['disponible'] == true)
                     ? 'Disponible'
                     : 'No disponible',
               ),
@@ -135,8 +139,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (res.statusCode == 200) {
       _cargarDatos();
       _msg('Asignado correctamente');
-    } else
+    } else {
       _msg('Error al asignar');
+    }
   }
 
   Future<void> _reasignarTecnico(dynamic solicitud) async {
@@ -174,8 +179,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (res.statusCode == 200) {
       _cargarDatos();
       _msg('Reasignado correctamente');
-    } else
+    } else {
       _msg('Error al reasignar');
+    }
   }
 
   Future<void> _cancelarSolicitud(dynamic solicitud) async {
@@ -206,8 +212,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (res.statusCode == 200) {
       _cargarDatos();
       _msg('Solicitud cancelada');
-    } else
+    } else {
       _msg('Error al cancelar');
+    }
   }
 
   Future<void> _descargarPdf(int solicitudId) async {
@@ -265,16 +272,18 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? Center(
-              child: Text(
-                'Error: $_error',
-                style: const TextStyle(color: AppTheme.error),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: AppTheme.error),
+                ),
               ),
             )
           : Column(
               children: [
-                // KPIs
                 SizedBox(
-                  height: 110,
+                  height: 100,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(
@@ -294,22 +303,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         Icons.fact_check_outlined,
                         AppTheme.warning,
                       ),
-                      _buildKpiCard(
-                        'SLA promedio',
-                        _slaPromedio,
-                        Icons.timer_outlined,
-                        AppTheme.textSecondary,
-                      ),
-                      _buildKpiCard(
-                        'Críticos',
-                        '$_incidentesCriticos',
-                        Icons.report_problem_outlined,
-                        AppTheme.error,
-                      ),
                     ],
                   ),
                 ),
-                // Mapa placeholder
                 Container(
                   margin: const EdgeInsets.symmetric(
                     horizontal: 16,
@@ -366,7 +362,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     ],
                   ),
                 ),
-                // Filtros
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -377,28 +372,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       _buildFilterChip('Asignada', 'asignada'),
                       _buildFilterChip('En proceso', 'en_proceso'),
                       _buildFilterChip('Finalizada', 'finalizada'),
-                      const SizedBox(width: 16),
-                      DropdownButton<String>(
-                        value: _filtroCiudad,
-                        underline: const SizedBox(),
-                        dropdownColor: AppTheme.darkSurface,
-                        style: const TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 13,
-                        ),
-                        items: [
-                          const DropdownMenuItem(
-                            value: 'todas',
-                            child: Text('Todas las ciudades'),
-                          ),
-                        ],
-                        onChanged: (v) => setState(() => _filtroCiudad = v!),
-                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 8),
-                // Lista de tickets
                 Expanded(
                   child: _solicitudesFiltradas.isEmpty
                       ? const Center(
