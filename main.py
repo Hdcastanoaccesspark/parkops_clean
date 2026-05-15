@@ -799,6 +799,26 @@ def listar_tecnicos(user=Depends(get_current_user)):
     db.close()
     return [{"id": t.id, "nombre": t.nombre, "disponible": t.disponible, "estado": t.estado} for t in tecnicos]
 
+@app.get("/solicitudes/{solicitud_id}")
+def obtener_solicitud(solicitud_id: int, user=Depends(get_current_user)):
+    db = SessionLocal()
+    solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
+    db.close()
+    if not solicitud:
+        raise HTTPException(404, "Solicitud no encontrada")
+    # Verificar permisos: solo el cliente, el técnico asignado o coordinador/lider
+    if user.rol not in ['lider', 'coordinador'] and user.id != solicitud.cliente_id and user.id != solicitud.tecnico_id:
+        raise HTTPException(403, "No autorizado")
+    return {
+        "id": solicitud.id,
+        "descripcion": solicitud.descripcion,
+        "estado": solicitud.estado,
+        "fotos": solicitud.fotos,
+        "items": solicitud.items,
+        "firma": solicitud.firma,
+        "fecha_creacion": solicitud.fecha_creacion.isoformat() if solicitud.fecha_creacion else None
+    }
+
 @app.put("/solicitudes/{solicitud_id}/asignar")
 def asignar_tecnico(solicitud_id: int, tecnico_id: int = Form(...), user=Depends(get_current_user)):
     if user.rol not in ['coordinador', 'lider']:
