@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../theme/app_theme.dart';
 import '../widgets/parkops_components.dart';
+import 'todos_reportes_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -21,6 +22,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   String? _error;
   String _nombre = 'Coordinador';
   String _filtroEstado = 'todos';
+  int _selectedTab = 0; // 0: Tickets, 1: Todos los reportes
 
   List<dynamic> get _solicitudesFiltradas {
     return _solicitudes.where((s) {
@@ -30,7 +32,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   int get _tecnicosActivos {
     if (_tecnicos.isEmpty) return 0;
-    // Si el campo 'disponible' existe, contar los activos; si no, mostrar el total
     if (_tecnicos.first is Map && _tecnicos.first.containsKey('disponible')) {
       return _tecnicos.where((t) => t['disponible'] == true).length;
     }
@@ -220,16 +221,25 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Future<void> _descargarPdf(int solicitudId) async {
     final url = '$API_BASE_URL/reporte/$solicitudId/pdf';
     final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      _msg('No se pudo abrir el enlace');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        throw 'No se puede abrir';
+      }
+    } catch (e) {
+      _msg('No se pudo abrir el PDF');
     }
   }
 
-  void _msg(String m) {
+  void _msg(String m, {bool err = true}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(m),
+        backgroundColor: err ? Colors.red : Colors.green,
+      ),
+    );
   }
 
   @override
@@ -254,6 +264,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person, color: AppTheme.textPrimary),
+            onPressed: () => Navigator.pushNamed(context, '/perfil'),
+            tooltip: 'Mi perfil',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh, color: AppTheme.textPrimary),
             onPressed: _cargarDatos,
@@ -282,6 +297,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             )
           : Column(
               children: [
+                // KPIs
                 SizedBox(
                   height: 100,
                   child: ListView(
@@ -306,178 +322,183 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     ],
                   ),
                 ),
+                // Pestañas
                 Container(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  height: 140,
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.darkBorder),
-                    gradient: LinearGradient(
-                      colors: [
-                        AppTheme.primaryBlue.withOpacity(0.3),
-                        AppTheme.darkSurface,
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    color: AppTheme.darkSurface,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.map_outlined,
-                            size: 48,
-                            color: AppTheme.primaryBlue.withOpacity(0.7),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Monitoreo en vivo',
-                            style: TextStyle(
-                              color: AppTheme.textSecondary,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const Text(
-                            'Próximamente',
-                            style: TextStyle(
-                              color: AppTheme.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-                          child: Container(color: Colors.transparent),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
                     children: [
-                      _buildFilterChip('Todos', 'todos'),
-                      _buildFilterChip('Pendiente', 'pendiente'),
-                      _buildFilterChip('Asignada', 'asignada'),
-                      _buildFilterChip('En proceso', 'en_proceso'),
-                      _buildFilterChip('Finalizada', 'finalizada'),
+                      _buildTab('Tickets', 0),
+                      _buildTab('Todos los reportes', 1),
                     ],
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 Expanded(
-                  child: _solicitudesFiltradas.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No hay tickets con ese filtro',
-                            style: TextStyle(color: AppTheme.textSecondary),
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          itemCount: _solicitudesFiltradas.length,
-                          itemBuilder: (_, i) {
-                            final s = _solicitudesFiltradas[i];
-                            return ParkopsCard(
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 4,
+                  child: _selectedTab == 0
+                      ? Column(
+                          children: [
+                            // Filtros de estado
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
                               ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            '#${s['id']} ${s['tipo']}',
-                                            style: const TextStyle(
-                                              color: AppTheme.textPrimary,
-                                              fontWeight: FontWeight.bold,
+                              child: Row(
+                                children: [
+                                  _buildFilterChip('Todos', 'todos'),
+                                  _buildFilterChip('Pendiente', 'pendiente'),
+                                  _buildFilterChip('Asignada', 'asignada'),
+                                  _buildFilterChip('En proceso', 'en_proceso'),
+                                  _buildFilterChip('Finalizada', 'finalizada'),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Expanded(
+                              child: _solicitudesFiltradas.isEmpty
+                                  ? const Center(
+                                      child: Text(
+                                        'No hay tickets con ese filtro',
+                                        style: TextStyle(
+                                          color: AppTheme.textSecondary,
+                                        ),
+                                      ),
+                                    )
+                                  : RefreshIndicator(
+                                      onRefresh: _cargarDatos,
+                                      child: ListView.builder(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 16,
+                                        ),
+                                        itemCount: _solicitudesFiltradas.length,
+                                        itemBuilder: (_, i) {
+                                          final s = _solicitudesFiltradas[i];
+                                          return ParkopsCard(
+                                            margin: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 4,
                                             ),
-                                          ),
-                                        ),
-                                        ParkopsStatusBadge(
-                                          status: s['estado'] ?? 'pendiente',
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      s['descripcion'] ?? '',
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: AppTheme.textSecondary,
+                                            child: Padding(
+                                              padding: const EdgeInsets.all(12),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          '#${s['id']} ${s['tipo']}',
+                                                          style: const TextStyle(
+                                                            color: AppTheme
+                                                                .textPrimary,
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      ParkopsStatusBadge(
+                                                        status:
+                                                            s['estado'] ??
+                                                            'pendiente',
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    s['descripcion'] ?? '',
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      color: AppTheme
+                                                          .textSecondary,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment.end,
+                                                    children: [
+                                                      if (s['estado'] ==
+                                                              'pendiente' ||
+                                                          s['estado'] ==
+                                                              'asignada')
+                                                        IconButton(
+                                                          icon: const Icon(
+                                                            Icons.person_add,
+                                                            color:
+                                                                AppTheme.info,
+                                                            size: 20,
+                                                          ),
+                                                          onPressed: () =>
+                                                              _asignarTecnico(
+                                                                s,
+                                                              ),
+                                                        ),
+                                                      if (s['estado'] !=
+                                                              'finalizada' &&
+                                                          s['estado'] !=
+                                                              'cancelada')
+                                                        IconButton(
+                                                          icon: const Icon(
+                                                            Icons.swap_horiz,
+                                                            color: AppTheme
+                                                                .warning,
+                                                            size: 20,
+                                                          ),
+                                                          onPressed: () =>
+                                                              _reasignarTecnico(
+                                                                s,
+                                                              ),
+                                                        ),
+                                                      if (s['estado'] !=
+                                                              'finalizada' &&
+                                                          s['estado'] !=
+                                                              'cancelada')
+                                                        IconButton(
+                                                          icon: const Icon(
+                                                            Icons.delete,
+                                                            color:
+                                                                AppTheme.error,
+                                                            size: 20,
+                                                          ),
+                                                          onPressed: () =>
+                                                              _cancelarSolicitud(
+                                                                s,
+                                                              ),
+                                                        ),
+                                                      if (s['estado'] ==
+                                                          'finalizada')
+                                                        IconButton(
+                                                          icon: const Icon(
+                                                            Icons.download,
+                                                            color: AppTheme
+                                                                .success,
+                                                            size: 20,
+                                                          ),
+                                                          onPressed: () =>
+                                                              _descargarPdf(
+                                                                s['id'],
+                                                              ),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          );
+                                        },
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        if (s['estado'] == 'pendiente' ||
-                                            s['estado'] == 'asignada')
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.person_add,
-                                              color: AppTheme.info,
-                                              size: 20,
-                                            ),
-                                            onPressed: () => _asignarTecnico(s),
-                                          ),
-                                        if (s['estado'] != 'finalizada' &&
-                                            s['estado'] != 'cancelada')
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.swap_horiz,
-                                              color: AppTheme.warning,
-                                              size: 20,
-                                            ),
-                                            onPressed: () =>
-                                                _reasignarTecnico(s),
-                                          ),
-                                        if (s['estado'] != 'finalizada' &&
-                                            s['estado'] != 'cancelada')
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.delete,
-                                              color: AppTheme.error,
-                                              size: 20,
-                                            ),
-                                            onPressed: () =>
-                                                _cancelarSolicitud(s),
-                                          ),
-                                        if (s['estado'] == 'finalizada')
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.download,
-                                              color: AppTheme.success,
-                                              size: 20,
-                                            ),
-                                            onPressed: () =>
-                                                _descargarPdf(s['id']),
-                                          ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+                            ),
+                          ],
+                        )
+                      : const TodosReportesScreen(), // Reutilizamos la pantalla de reportes ya creada
                 ),
               ],
             ),
@@ -536,6 +557,33 @@ class _AdminDashboardState extends State<AdminDashboard> {
           color: isSelected ? AppTheme.primaryBlue : AppTheme.darkBorder,
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  Widget _buildTab(String label, int index) {
+    final isSelected = _selectedTab == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _selectedTab = index),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? AppTheme.primaryBlue : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isSelected
+                    ? AppTheme.textPrimary
+                    : AppTheme.textSecondary,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

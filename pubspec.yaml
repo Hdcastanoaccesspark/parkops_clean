@@ -17,7 +17,7 @@ dependencies:
   signature: ^5.4.0
   mobile_scanner: ^5.2.3
   intl: ^0.18.0
-  url_launcher: ^6.1.0
+  url_launcher: ^6.2.1
   fl_chart: ^0.70.0   # ← NUEVA DEPENDENCIA
   path_provider: ^2.1.0
   open_file: ^3.3.2

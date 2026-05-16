@@ -7,9 +7,26 @@ import 'screens/cliente_dashboard.dart';
 import 'screens/tecnico_dashboard.dart';
 import 'screens/admin_dashboard.dart';
 import 'screens/lider_dashboard.dart';
+import 'screens/perfil_screen.dart'; // Lo crearemos luego
 import 'config.dart';
 import 'theme/app_theme.dart';
 import 'widgets/parkops_components.dart';
+
+// Mapeo de roles a rutas
+String rolToRoute(String rol) {
+  switch (rol) {
+    case 'coordinador':
+      return '/admin';
+    case 'cliente':
+      return '/cliente';
+    case 'tecnico':
+      return '/tecnico';
+    case 'lider':
+      return '/lider';
+    default:
+      return '/login';
+  }
+}
 
 void main() => runApp(const MyApp());
 
@@ -26,6 +43,7 @@ class MyApp extends StatelessWidget {
       '/tecnico': (context) => const TecnicoDashboard(),
       '/admin': (context) => const AdminDashboard(),
       '/lider': (context) => const LiderDashboard(),
+      '/perfil': (context) => const PerfilScreen(),
     },
     debugShowCheckedModeBanner: false,
   );
@@ -41,7 +59,6 @@ class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
 
   @override
   void initState() {
@@ -54,12 +71,7 @@ class _SplashScreenState extends State<SplashScreen>
       begin: 0,
       end: 1,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-    _scaleAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
     _controller.forward();
-
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) _verificarSesion();
     });
@@ -76,7 +88,7 @@ class _SplashScreenState extends State<SplashScreen>
           headers: {'Authorization': 'Bearer $token'},
         );
         if (res.statusCode == 200) {
-          if (mounted) Navigator.pushReplacementNamed(context, '/$rol');
+          if (mounted) Navigator.pushReplacementNamed(context, rolToRoute(rol));
           return;
         }
       } catch (_) {}
@@ -179,7 +191,7 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         }
         if (mounted) {
-          Navigator.pushReplacementNamed(context, '/${data['rol']}');
+          Navigator.pushReplacementNamed(context, rolToRoute(data['rol']));
         }
       } else {
         setState(() => _error = 'Credenciales incorrectas');
@@ -232,7 +244,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Logo circular grande
                         ClipOval(
                           child: Image.asset(
                             'assets/logo_parkops.png',

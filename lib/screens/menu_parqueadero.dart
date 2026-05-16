@@ -7,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signature/signature.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../theme/app_theme.dart';
 import '../widgets/parkops_components.dart';
@@ -59,7 +58,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
         setState(() => _cargando = false);
       }
     } catch (e) {
-      print('Error cargando máquinas: $e');
+      debugPrint('Error cargando máquinas: $e');
       setState(() => _cargando = false);
     }
   }
@@ -68,9 +67,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getInt('solicitudActivaId_${widget.parqueadero['id']}');
     if (id != null) {
-      setState(() {
-        _solicitudActivaId = id;
-      });
+      setState(() => _solicitudActivaId = id);
     }
   }
 
@@ -97,12 +94,10 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
         headers: {'Authorization': 'Bearer $token'},
       );
       if (res.statusCode == 200) {
-        setState(() {
-          _misReportes = jsonDecode(res.body);
-        });
+        setState(() => _misReportes = jsonDecode(res.body));
       }
     } catch (e) {
-      print('Error cargando mis reportes: $e');
+      debugPrint('Error cargando mis reportes: $e');
     }
   }
 
@@ -118,12 +113,10 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
         headers: {'Authorization': 'Bearer $token'},
       );
       if (res.statusCode == 200) {
-        setState(() {
-          _reportesParqueadero = jsonDecode(res.body);
-        });
+        setState(() => _reportesParqueadero = jsonDecode(res.body));
       }
     } catch (e) {
-      print('Error cargando reportes del parqueadero: $e');
+      debugPrint('Error cargando reportes del parqueadero: $e');
     }
     setState(() => _cargandoReportes = false);
   }
@@ -165,14 +158,12 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
     final url = '$API_BASE_URL/reporte/$solicitudId/pdf';
-
     try {
       _msg('Descargando PDF...', err: false);
       final res = await http.get(
         Uri.parse(url),
         headers: {'Authorization': 'Bearer $token'},
       );
-
       if (res.statusCode == 200) {
         final dir = await getTemporaryDirectory();
         final file = File('${dir.path}/reporte_$solicitudId.pdf');
@@ -205,7 +196,6 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
       ),
     );
     if (tipo == null) return;
-
     if (tipo == 'remoto') {
       final result = await Navigator.push(
         context,
@@ -222,12 +212,10 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
       }
       return;
     }
-
     if (_maquinas.isEmpty) {
       _msg('No hay máquinas disponibles');
       return;
     }
-
     final maq = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -246,7 +234,6 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
       ),
     );
     if (maq == null) return;
-
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -325,12 +312,121 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
     }
   }
 
+  Future<String?> _mostrarDialogoFirma() async {
+    final prefs = await SharedPreferences.getInstance();
+    final firmaGuardada = prefs.getString(
+      'firma_parqueadero_${widget.parqueadero['id']}',
+    );
+    if (firmaGuardada != null && firmaGuardada.isNotEmpty) {
+      final usarGuardada = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Firma guardada'),
+          content: const Text(
+            'Ya existe una firma registrada para este parqueadero. ¿Desea usarla nuevamente?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Nueva firma'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Usar guardada'),
+            ),
+          ],
+        ),
+      );
+      if (usarGuardada == true) return firmaGuardada;
+    }
+    final SignatureController ctrl = SignatureController(
+      penStrokeWidth: 2,
+      penColor: Colors.black,
+    );
+    bool guardarParaFuturo = false;
+    final result = await showGeneralDialog<Uint8List>(
+      context: context,
+      barrierDismissible: false,
+      pageBuilder: (ctx, anim, secAnim) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => Scaffold(
+          backgroundColor: Colors.black54,
+          body: SafeArea(
+            child: Column(
+              children: [
+                Expanded(
+                  child: Container(
+                    color: Colors.white,
+                    margin: const EdgeInsets.all(16),
+                    child: Signature(controller: ctrl),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: () => ctrl.clear(),
+                        icon: const Icon(Icons.undo),
+                        label: const Text('Borrar'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey,
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () async {
+                          if (ctrl.isEmpty) {
+                            _msg('Debe capturar la firma');
+                            return;
+                          }
+                          final signatureBytes = await ctrl.toPngBytes();
+                          Navigator.pop(ctx, signatureBytes);
+                        },
+                        icon: const Icon(Icons.check),
+                        label: const Text('Confirmar'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                CheckboxListTile(
+                  title: const Text(
+                    'Guardar firma para futuros reportes de este parqueadero',
+                  ),
+                  value: guardarParaFuturo,
+                  onChanged: (value) =>
+                      setStateDialog(() => guardarParaFuturo = value ?? false),
+                  activeColor: AppTheme.primaryBlue,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (result == null) return null;
+    final firmaBase64 = base64Encode(
+      result,
+    ).replaceAll('\n', '').replaceAll('\r', '');
+    if (guardarParaFuturo) {
+      await prefs.setString(
+        'firma_parqueadero_${widget.parqueadero['id']}',
+        firmaBase64,
+      );
+    }
+    return firmaBase64;
+  }
+
   Future<void> _finalizar() async {
     if (_solicitudActivaId == null) {
       _msg('No hay un reporte activo para finalizar');
       return;
     }
-
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -351,10 +447,8 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
       ),
     );
     if (confirm != true) return;
-
     final firmaBase64 = await _mostrarDialogoFirma();
     if (firmaBase64 == null) return;
-
     final enviar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -384,94 +478,50 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
       return;
     }
     if (enviar != true) return;
-
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
+    String? itemsActuales;
+    try {
+      final resGet = await http.get(
+        Uri.parse('$API_BASE_URL/solicitudes/$_solicitudActivaId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (resGet.statusCode == 200) {
+        final data = jsonDecode(resGet.body);
+        itemsActuales = data['items'];
+      }
+    } catch (e) {
+      debugPrint('Error al obtener solicitud: $e');
+    }
+    final itemsEnvio = itemsActuales ?? 'Reporte completado';
     final res = await http.post(
       Uri.parse('$API_BASE_URL/tecnico/cerrar_solicitud/$_solicitudActivaId'),
       headers: {'Authorization': 'Bearer $token'},
-      body: {'items': 'Reporte completado', 'firma': firmaBase64},
+      body: {'items': itemsEnvio, 'firma': firmaBase64},
     );
     if (res.statusCode == 200) {
       _msg('Labor finalizada. Reporte PDF generado.', err: false);
-      setState(() {
-        _solicitudActivaId = null;
-      });
+      setState(() => _solicitudActivaId = null);
       await _guardarReporteActivo();
       _cargarMisReportes();
       _cargarReportesParqueadero();
+      // IMPORTANTE: notificar al dashboard que refresque
+      Navigator.pop(context, true);
     } else {
       _msg('Error al cerrar solicitud: ${res.statusCode}');
     }
   }
 
-  Future<String?> _mostrarDialogoFirma() async {
-    final SignatureController ctrl = SignatureController(
-      penStrokeWidth: 2,
-      penColor: Colors.black,
-    );
-    final result = await showGeneralDialog<Uint8List>(
-      context: context,
-      barrierDismissible: false,
-      pageBuilder: (ctx, anim, secAnim) => Scaffold(
-        backgroundColor: Colors.black54,
-        body: SafeArea(
-          child: Column(
-            children: [
-              Expanded(
-                child: Container(
-                  color: Colors.white,
-                  margin: const EdgeInsets.all(16),
-                  child: Signature(controller: ctrl),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: () => ctrl.clear(),
-                      icon: const Icon(Icons.undo),
-                      label: const Text('Borrar'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey,
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: () async {
-                        if (ctrl.isEmpty) {
-                          _msg('Debe capturar la firma');
-                          return;
-                        }
-                        final signatureBytes = await ctrl.toPngBytes();
-                        Navigator.pop(ctx, signatureBytes);
-                      },
-                      icon: const Icon(Icons.check),
-                      label: const Text('Confirmar'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (result == null) return null;
-    return base64Encode(result);
-  }
-
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: _onWillPop,
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        final shouldPop = await _onWillPop();
+        if (shouldPop && mounted)
+          Navigator.of(context).pop(false); // false porque no hubo cambios
+      },
       child: Scaffold(
         backgroundColor: AppTheme.darkBackground,
         appBar: AppBar(
@@ -544,7 +594,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
                     ),
                     _cargandoReportes
                         ? const CircularProgressIndicator()
-                        : _misReportes.isEmpty && _reportesParqueadero.isEmpty
+                        : (_misReportes.isEmpty && _reportesParqueadero.isEmpty)
                         ? const Text(
                             'No hay reportes disponibles',
                             style: TextStyle(color: AppTheme.textSecondary),
@@ -557,7 +607,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
                               itemBuilder: (_, i) {
                                 if (i < _misReportes.length) {
                                   final reporte = _misReportes[i];
-                                  final bool esFinalizada =
+                                  final esFinalizada =
                                       reporte['estado'] == 'finalizada';
                                   return ListTile(
                                     title: Text(
@@ -587,7 +637,7 @@ class _MenuParqueaderoScreenState extends State<MenuParqueaderoScreen> {
                                                     reporte['id'],
                                               );
                                               _guardarReporteActivo();
-                                              _finalizar(); // lleva directamente a la firma
+                                              _finalizar();
                                             },
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor:

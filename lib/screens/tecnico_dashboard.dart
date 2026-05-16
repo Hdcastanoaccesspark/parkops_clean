@@ -9,6 +9,7 @@ import '../config.dart';
 import '../theme/app_theme.dart';
 import '../widgets/parkops_components.dart';
 import 'menu_parqueadero.dart';
+import 'tecnico_reportes_screen.dart';
 
 class TecnicoDashboard extends StatefulWidget {
   const TecnicoDashboard({super.key});
@@ -27,9 +28,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   bool _laborPausada = false;
   String _vistaActual = 'parqueaderos';
   String _nombre = 'Técnico';
-  String _fotoPerfil = ''; // base64 o '' para placeholder
+  String _fotoPerfil = '';
   bool _gpsActivo = false;
-  final List<String> _fotosEvidencia = []; // galería rápida
+  final List<String> _fotosEvidencia = [];
 
   @override
   void initState() {
@@ -80,10 +81,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   }
 
   Future<void> _logout() async {
-    final confirm = await _confirmar(
-      'Cerrar sesión',
-      '¿Está seguro de que desea cerrar sesión?',
-    );
+    final confirm = await _confirmar('Cerrar sesión', '¿Está seguro?');
     if (!confirm) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
@@ -107,12 +105,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   }
 
   Future<void> _iniciarJornada() async {
-    if (!await _confirmar(
-      'Iniciar jornada',
-      '¿Está seguro de que desea iniciar la jornada laboral?',
-    )) {
-      return;
-    }
+    if (!await _confirmar('Iniciar jornada', '¿Está seguro?')) return;
     setState(() => _cargandoJornada = true);
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -139,12 +132,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   }
 
   Future<void> _finalizarJornada() async {
-    if (!await _confirmar(
-      'Finalizar jornada',
-      '¿Está seguro de que desea finalizar la jornada laboral?',
-    )) {
-      return;
-    }
+    if (!await _confirmar('Finalizar jornada', '¿Está seguro?')) return;
     setState(() => _cargandoJornada = true);
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -173,28 +161,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     } finally {
       if (mounted) setState(() => _cargandoJornada = false);
     }
-  }
-
-  Future<void> _pausarJornada() async {
-    if (!await _confirmar('Pausar jornada', '¿Desea pausar la jornada?')) {
-      return;
-    }
-    setState(() {
-      _jornadaPausada = true;
-      if (_parqueaderoLaborNombre != null) _laborPausada = true;
-    });
-    _msg('Jornada pausada', err: false);
-  }
-
-  Future<void> _reanudarJornada() async {
-    if (!await _confirmar('Reanudar jornada', '¿Desea reanudar la jornada?')) {
-      return;
-    }
-    setState(() {
-      _jornadaPausada = false;
-      if (_parqueaderoLaborNombre != null) _laborPausada = false;
-    });
-    _msg('Jornada reanudada', err: false);
   }
 
   Future<void> _cargarParqueaderos() async {
@@ -260,8 +226,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           _visitasAsignadas = todas
               .where(
                 (s) =>
-                    s['estado'] == 'asignada' ||
                     s['estado'] == 'pendiente' ||
+                    s['estado'] == 'asignada' ||
                     s['estado'] == 'aceptada',
               )
               .toList();
@@ -290,12 +256,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       _msg('Jornada pausada. Reanuda primero.');
       return;
     }
-    if (!await _confirmar(
-      'Aceptar solicitud',
-      '¿Confirma que desea aceptar esta visita?',
-    )) {
-      return;
-    }
+    if (!await _confirmar('Aceptar solicitud', '¿Confirma?')) return;
 
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
@@ -304,45 +265,38 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       headers: {'Authorization': 'Bearer $token'},
     );
     if (res.statusCode == 200) {
-      // Guardamos el parqueadero_id antes de refrescar la lista
-      int? parqueaderoId;
-      for (var s in _visitasAsignadas) {
-        if (s['id'] == id) {
-          parqueaderoId = s['parqueadero_id'];
-          break;
-        }
-      }
-      // Si no lo encontramos en las asignadas, buscamos en parqueaderos conocidos a través del cliente
-      if (parqueaderoId == null) {
-        // Podríamos obtener el parqueadero desde la respuesta del endpoint de solicitudes, pero no lo tenemos aquí.
-        // Como fallback, navegamos a un parqueadero por defecto o mostramos mensaje.
-        _msg(
-          'Solicitud aceptada, pero no se encontró el parqueadero asociado',
-          err: false,
-        );
-        _cargarVisitasAsignadas();
-        return;
-      }
-
-      _cargarVisitasAsignadas();
-      _msg('Solicitud aceptada', err: false);
-
-      // Navegar al parqueadero si está en la lista local
-      if (_parqueaderos.isNotEmpty) {
+      final solicitud = _visitasAsignadas.firstWhere((s) => s['id'] == id);
+      final parqueaderoId = solicitud['parqueadero_id'];
+      String? parqueaderoNombre = solicitud['parqueadero_nombre'];
+      if (parqueaderoId != null &&
+          (parqueaderoNombre == null || parqueaderoNombre.isEmpty)) {
         final parqueadero = _parqueaderos.firstWhere(
           (p) => p['id'] == parqueaderoId,
-          orElse: () => _parqueaderos.first,
+          orElse: () => null,
         );
-        await Navigator.push(
+        if (parqueadero != null) parqueaderoNombre = parqueadero['nombre'];
+      }
+      await _cargarVisitasAsignadas();
+      _msg('Solicitud aceptada', err: false);
+      if (parqueaderoId != null && parqueaderoNombre != null) {
+        final parqueadero = {
+          'id': parqueaderoId,
+          'nombre': parqueaderoNombre,
+          'direccion': solicitud['direccion'] ?? '',
+        };
+        final result = await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => MenuParqueaderoScreen(parqueadero: parqueadero),
           ),
         );
-        _cargarParqueaderos();
-        _cargarVisitasAsignadas();
+        // Si el menú retorna true, refrescamos todo
+        if (result == true) {
+          await _cargarVisitasAsignadas();
+          await _cargarParqueaderos();
+        }
       } else {
-        _msg('No se pudo abrir el parqueadero', err: true);
+        _msg('No se pudo determinar el parqueadero asociado', err: true);
       }
     } else {
       _msg('Error al aceptar: ${res.statusCode}');
@@ -383,7 +337,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       body: {'motivo': motivo},
     );
     if (res.statusCode == 200) {
-      _cargarVisitasAsignadas();
+      await _cargarVisitasAsignadas();
       _msg('Solicitud devuelta a pendiente', err: false);
     } else {
       _msg('Error al devolver: ${res.statusCode}');
@@ -402,9 +356,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     if (!await _confirmar(
       'Iniciar labor',
       '¿Desea iniciar labor en ${p['nombre']}?',
-    )) {
+    ))
       return;
-    }
     try {
       await Geolocator.getCurrentPosition();
     } catch (_) {}
@@ -412,7 +365,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       _parqueaderoLaborNombre = p['nombre'];
       _laborPausada = false;
     });
-    await Navigator.push(
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => MenuParqueaderoScreen(parqueadero: p)),
     );
@@ -420,22 +373,22 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       _parqueaderoLaborNombre = null;
       _laborPausada = false;
     });
-    _cargarParqueaderos();
+    if (result == true) {
+      await _cargarVisitasAsignadas();
+      await _cargarParqueaderos();
+    }
   }
 
-  // ACCIONES RÁPIDAS
+  // Acciones rápidas (Waze, llamar, abrir servicio actual)
   Future<void> _abrirWaze() async {
     final url = 'https://waze.com/ul?ll=4.598,-74.071&navigate=yes';
-    if (await canLaunchUrl(Uri.parse(url))) {
+    if (await canLaunchUrl(Uri.parse(url)))
       await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    }
   }
 
   Future<void> _llamarCliente() async {
-    final url = 'tel:600123456'; // cambiar por número real
-    if (await canLaunchUrl(Uri.parse(url))) {
-      await launchUrl(Uri.parse(url));
-    }
+    final url = 'tel:600123456';
+    if (await canLaunchUrl(Uri.parse(url))) await launchUrl(Uri.parse(url));
   }
 
   Future<void> _abrirServicioActual() async {
@@ -448,25 +401,26 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       orElse: () => null,
     );
     if (parqueadero != null) {
-      await Navigator.push(
+      final result = await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => MenuParqueaderoScreen(parqueadero: parqueadero),
         ),
       );
-      _cargarParqueaderos();
+      if (result == true) {
+        await _cargarVisitasAsignadas();
+        await _cargarParqueaderos();
+      }
     }
   }
 
-  // EVIDENCIAS RÁPIDAS
+  // Evidencias rápidas
   Future<void> _tomarFotoEvidencia() async {
     final picker = ImagePicker();
     final foto = await picker.pickImage(source: ImageSource.camera);
     if (foto != null) {
       final bytes = await foto.readAsBytes();
-      setState(() {
-        _fotosEvidencia.add(base64Encode(bytes));
-      });
+      setState(() => _fotosEvidencia.add(base64Encode(bytes)));
     }
   }
 
@@ -540,7 +494,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       ),
       body: Column(
         children: [
-          // ---------- HEADER OPERATIVO ----------
           Container(
             padding: const EdgeInsets.fromLTRB(16, 48, 16, 12),
             decoration: BoxDecoration(
@@ -555,7 +508,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             ),
             child: Row(
               children: [
-                // Foto de perfil
                 CircleAvatar(
                   radius: 26,
                   backgroundColor: AppTheme.darkBorder,
@@ -620,14 +572,30 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                   ),
                 ),
                 IconButton(
+                  icon: const Icon(Icons.person, color: AppTheme.textSecondary),
+                  onPressed: () => Navigator.pushNamed(context, '/perfil'),
+                  tooltip: 'Mi perfil',
+                ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.assignment_turned_in,
+                    color: AppTheme.textSecondary,
+                  ),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const TecnicoReportesScreen(),
+                    ),
+                  ),
+                  tooltip: 'Mis reportes',
+                ),
+                IconButton(
                   icon: const Icon(Icons.logout, color: AppTheme.textSecondary),
                   onPressed: _logout,
                 ),
               ],
             ),
           ),
-
-          // ---------- BOTÓN JORNADA ----------
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: _jornadaActiva
@@ -642,8 +610,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                     onPressed: _cargandoJornada ? null : _iniciarJornada,
                   ),
           ),
-
-          // ---------- SERVICIO ACTUAL ----------
           if (_parqueaderoLaborNombre != null)
             ParkopsCard(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -692,8 +658,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                 ),
               ),
             ),
-
-          // ---------- GALERÍA DE EVIDENCIAS ----------
           if (_fotosEvidencia.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -735,8 +699,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                 ],
               ),
             ),
-
-          // ---------- PESTAÑAS ----------
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
@@ -751,8 +713,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
               ],
             ),
           ),
-
-          // ---------- CONTENIDO PRINCIPAL ----------
           Expanded(
             child: _vistaActual == 'asignadas'
                 ? _cargandoVisitas
@@ -783,70 +743,92 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                             style: TextStyle(color: AppTheme.textSecondary),
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.only(bottom: 80),
-                          itemCount: _visitasAsignadas.length,
-                          itemBuilder: (_, i) {
-                            final s = _visitasAsignadas[i];
-                            final bool puedeAceptar =
-                                s['estado'] == 'asignada' ||
-                                s['estado'] == 'pendiente';
-                            final bool puedeDevolver =
-                                s['estado'] == 'aceptada';
-                            return ParkopsCard(
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 4,
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
+                      : RefreshIndicator(
+                          onRefresh: _cargarVisitasAsignadas,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.only(bottom: 80),
+                            itemCount: _visitasAsignadas.length,
+                            itemBuilder: (_, i) {
+                              final s = _visitasAsignadas[i];
+                              final bool puedeAceptar =
+                                  s['estado'] == 'asignada' ||
+                                  s['estado'] == 'pendiente';
+                              final bool puedeDevolver =
+                                  s['estado'] == 'aceptada';
+                              final parqueaderoNombre =
+                                  s['parqueadero_nombre'] ??
+                                  'Parqueadero no especificado';
+                              return ParkopsCard(
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 4,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
                                         children: [
-                                          Text(
-                                            '${s['tipo']} - ${s['estado']}',
-                                            style: const TextStyle(
-                                              color: AppTheme.textPrimary,
+                                          Expanded(
+                                            child: Text(
+                                              '${s['tipo']} - ${s['estado']}',
+                                              style: const TextStyle(
+                                                color: AppTheme.textPrimary,
+                                              ),
                                             ),
                                           ),
                                           Text(
-                                            s['descripcion'] ?? '',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
+                                            parqueaderoNombre,
                                             style: const TextStyle(
-                                              color: AppTheme.textSecondary,
+                                              color: AppTheme.info,
+                                              fontSize: 12,
                                             ),
                                           ),
                                         ],
                                       ),
-                                    ),
-                                    if (puedeAceptar)
-                                      ParkopsPrimaryButton(
-                                        label: 'Aceptar',
-                                        onPressed: () =>
-                                            _aceptarSolicitud(s['id']),
-                                        fullWidth: false,
-                                      ),
-                                    if (puedeDevolver)
-                                      TextButton(
-                                        onPressed: () =>
-                                            _devolverAPendiente(s['id']),
-                                        child: const Text(
-                                          'Devolver',
-                                          style: TextStyle(
-                                            color: AppTheme.warning,
-                                          ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        s['descripcion'] ?? '',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: AppTheme.textSecondary,
+                                          fontSize: 12,
                                         ),
                                       ),
-                                  ],
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: [
+                                          if (puedeAceptar)
+                                            ParkopsPrimaryButton(
+                                              label: 'Aceptar',
+                                              onPressed: () =>
+                                                  _aceptarSolicitud(s['id']),
+                                              fullWidth: false,
+                                            ),
+                                          if (puedeDevolver)
+                                            TextButton(
+                                              onPressed: () =>
+                                                  _devolverAPendiente(s['id']),
+                                              child: const Text(
+                                                'Devolver',
+                                                style: TextStyle(
+                                                  color: AppTheme.warning,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
+                              );
+                            },
+                          ),
                         )
                 : _cargandoParqueaderos
                 ? const Center(child: CircularProgressIndicator())
@@ -859,6 +841,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                           'Error: $_errorParqueaderos',
                           style: const TextStyle(color: AppTheme.textPrimary),
                         ),
+                        const SizedBox(height: 8),
                         ElevatedButton(
                           onPressed: _cargarParqueaderos,
                           child: const Text('Reintentar'),
@@ -873,29 +856,34 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                       style: TextStyle(color: AppTheme.textSecondary),
                     ),
                   )
-                : ListView.builder(
-                    padding: const EdgeInsets.only(bottom: 80),
-                    itemCount: _parqueaderos.length,
-                    itemBuilder: (_, i) => ParkopsCard(
-                      onTap: (!_jornadaActiva || _jornadaPausada)
-                          ? null
-                          : () => _entrarAParqueadero(_parqueaderos[i]),
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 4,
-                      ),
-                      child: ListTile(
-                        title: Text(
-                          _parqueaderos[i]['nombre'],
-                          style: const TextStyle(color: AppTheme.textPrimary),
+                : RefreshIndicator(
+                    onRefresh: _cargarParqueaderos,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 80),
+                      itemCount: _parqueaderos.length,
+                      itemBuilder: (_, i) => ParkopsCard(
+                        onTap: (!_jornadaActiva || _jornadaPausada)
+                            ? null
+                            : () => _entrarAParqueadero(_parqueaderos[i]),
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
                         ),
-                        subtitle: Text(
-                          _parqueaderos[i]['direccion'],
-                          style: const TextStyle(color: AppTheme.textSecondary),
-                        ),
-                        trailing: const Icon(
-                          Icons.chevron_right,
-                          color: AppTheme.textSecondary,
+                        child: ListTile(
+                          title: Text(
+                            _parqueaderos[i]['nombre'],
+                            style: const TextStyle(color: AppTheme.textPrimary),
+                          ),
+                          subtitle: Text(
+                            _parqueaderos[i]['direccion'],
+                            style: const TextStyle(
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            color: AppTheme.textSecondary,
+                          ),
                         ),
                       ),
                     ),
