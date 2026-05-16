@@ -607,18 +607,22 @@ def listar_solicitudes(user=Depends(get_current_user)):
                     parqueadero_nombre = parq.nombre
                 db2.close()
             result.append({
-                "id": s.id, "descripcion": s.descripcion, "estado": s.estado, "tipo": s.tipo,
-                "cliente_nombre": cliente_nombre, "tecnico_id": s.tecnico_id,
+                "id": s.id,
+                "descripcion": s.descripcion,
+                "estado": s.estado,
+                "tipo": s.tipo,
+                "cliente_nombre": cliente_nombre,
+                "tecnico_id": s.tecnico_id,
                 "origen": s.origen,
                 "parqueadero_id": parqueadero_id,
-                "parqueadero_nombre": parqueadero_nombre
+                "parqueadero_nombre": parqueadero_nombre,
+                "maquina_id": s.maquina_id   # 🔥 NUEVO: incluir máquina asociada
             })
         db.close()
         return result
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(500, f"Error al listar solicitudes: {str(e)}")
-
 @app.post("/tecnico/iniciar_jornada")
 def iniciar_jornada(lat: float = Form(...), lon: float = Form(...), user=Depends(get_current_user)):
     try:
