@@ -1,12 +1,12 @@
 from fastapi import FastAPI, HTTPException, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta, timezone
-import bcrypt, jwt, math, os, traceback, base64, tempfile, urllib.request, re, qrcode
+import bcrypt, jwt, math, os, traceback, base64, tempfile, re, qrcode
 from fpdf import FPDF
 from dotenv import load_dotenv
 import smtplib
@@ -60,6 +60,7 @@ class Solicitud(Base):
     estado = Column(String)
     tecnico_id = Column(Integer, nullable=True)
     maquina_id = Column(Integer, nullable=True)
+    parqueadero_id = Column(Integer, nullable=True)
     fecha_creacion = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     fecha_asignacion = Column(DateTime, nullable=True)
     fecha_aceptacion = Column(DateTime, nullable=True)
@@ -180,7 +181,9 @@ def generar_pdf(solicitud_id: int):
     cliente = db.query(User).filter(User.id == solicitud.cliente_id).first()
     tecnico = db.query(User).filter(User.id == solicitud.tecnico_id).first() if solicitud.tecnico_id else None
     parqueadero = None
-    if solicitud.maquina_id:
+    if solicitud.parqueadero_id:
+        parqueadero = db.query(Parqueadero).filter(Parqueadero.id == solicitud.parqueadero_id).first()
+    elif solicitud.maquina_id:
         maquina = db.query(Maquina).filter(Maquina.id == solicitud.maquina_id).first()
         if maquina:
             parqueadero = db.query(Parqueadero).filter(Parqueadero.id == maquina.parqueadero_id).first()
@@ -191,40 +194,28 @@ def generar_pdf(solicitud_id: int):
     pdf.add_page()
 
     azul = (0, 74, 153)
-    rojo = (227, 6, 19)
     gris_claro = (240, 240, 240)
     gris_texto = (100, 100, 100)
     blanco = (255, 255, 255)
 
-    # ---------- HEADER AZUL ----------
+    # HEADER
     pdf.set_fill_color(*azul)
     pdf.rect(0, 0, 210, 45, 'F')
 
-    # Logo ParkOPS
+    # Logos locales
     try:
-        logo_url = 'https://i.imgur.com/QZhOFhX.png'
-        response = urllib.request.urlopen(logo_url)
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-            tmp.write(response.read())
-            logo_parkops_path = tmp.name
-        pdf.image(logo_parkops_path, x=10, y=5, w=30)
-        os.unlink(logo_parkops_path)
-    except Exception as e:
-        print(f"No se pudo descargar logo ParkOPS: {e}")
-
-    # Logo Accespark (opcional)
+        logo_parkops_path = os.path.join(os.path.dirname(__file__), "static", "parkops_logo.png")
+        if os.path.exists(logo_parkops_path):
+            pdf.image(logo_parkops_path, x=10, y=5, w=30)
+    except:
+        pass
     try:
-        logo_accespark_url = 'https://i.imgur.com/WyyLdQw.png'
-        response = urllib.request.urlopen(logo_accespark_url)
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-            tmp.write(response.read())
-            logo_accespark_path = tmp.name
-        pdf.image(logo_accespark_path, x=170, y=5, w=30)
-        os.unlink(logo_accespark_path)
-    except Exception as e:
-        print(f"No se pudo descargar logo Accespark: {e}")
+        logo_accespark_path = os.path.join(os.path.dirname(__file__), "static", "accespark_logo.png")
+        if os.path.exists(logo_accespark_path):
+            pdf.image(logo_accespark_path, x=170, y=5, w=30)
+    except:
+        pass
 
-    # Título y metadatos
     pdf.set_y(10)
     pdf.set_x(50)
     pdf.set_font('Helvetica', 'B', 20)
@@ -236,16 +227,15 @@ def generar_pdf(solicitud_id: int):
 
     pdf.ln(20)
 
-    # Datos generales
+    # DATOS DEL SERVICIO
     pdf.set_font('Helvetica', 'B', 12)
     pdf.set_text_color(*azul)
     pdf.cell(0, 8, txt='DATOS DEL SERVICIO', ln=True)
-    pdf.set_draw_color(*azul)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(4)
 
     pdf.set_font('Helvetica', '', 10)
-    pdf.set_text_color(0, 0, 0)
+    pdf.set_text_color(0,0,0)
     ancho_col = 60
     def campo(label, valor):
         pdf.set_font('Helvetica', 'B', 10)
@@ -266,7 +256,7 @@ def generar_pdf(solicitud_id: int):
 
     pdf.ln(6)
 
-    # ---------- TIMELINE OPERATIVO ----------
+    # TIMELINE
     pdf.set_font('Helvetica', 'B', 12)
     pdf.set_text_color(*azul)
     pdf.cell(0, 8, txt='TRAZABILIDAD DEL SERVICIO', ln=True)
@@ -287,7 +277,7 @@ def generar_pdf(solicitud_id: int):
     pdf.cell(90, 8, txt='Evento', border=1, fill=True)
     pdf.cell(95, 8, txt='Fecha / Hora', border=1, fill=True, ln=True)
 
-    pdf.set_text_color(0, 0, 0)
+    pdf.set_text_color(0,0,0)
     pdf.set_font('Helvetica', '', 9)
     fill = False
     for evento, fecha in eventos:
@@ -302,7 +292,7 @@ def generar_pdf(solicitud_id: int):
 
     pdf.ln(6)
 
-    # ---------- DIAGNÓSTICO ----------
+    # DIAGNÓSTICO
     pdf.set_font('Helvetica', 'B', 12)
     pdf.set_text_color(*azul)
     pdf.cell(0, 8, txt='DIAGNOSTICO', ln=True)
@@ -323,60 +313,38 @@ def generar_pdf(solicitud_id: int):
 
     pdf.ln(6)
 
-    # ---------- EVIDENCIAS FOTOGRÁFICAS ----------
+    # EVIDENCIAS
     if solicitud.fotos:
         pdf.set_font('Helvetica', 'B', 12)
         pdf.set_text_color(*azul)
-        pdf.cell(0, 8, txt='EVIDENCIAS FOTOGRAFICAS', ln=True)
+        pdf.cell(0, 8, txt='EVIDENCIAS FOTOGRÁFICAS', ln=True)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(4)
 
         fotos_list = [f for f in solicitud.fotos.split(',') if f]
-        mitad = max(1, len(fotos_list) // 2) if len(fotos_list) > 1 else 0
-        fotos_antes = fotos_list[:mitad] if mitad > 0 else fotos_list[:1]
-        fotos_despues = fotos_list[mitad:] if len(fotos_list) > 1 else []
-        if len(fotos_list) == 1:
-            fotos_antes = fotos_list
-            fotos_despues = []
+        ancho_img = 80
+        alto_img = 60
+        x = 10
+        y = pdf.get_y()
+        for idx, foto_base64 in enumerate(fotos_list[:8]):
+            if idx % 2 == 0 and idx != 0:
+                x = 10
+                y += alto_img + 4
+            try:
+                img_bytes = base64.b64decode(foto_base64)
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as img_file:
+                    img_file.write(img_bytes)
+                    img_path = img_file.name
+                pdf.image(img_path, x=x, y=y, w=ancho_img, h=alto_img)
+                os.unlink(img_path)
+            except:
+                pdf.set_xy(x, y+10)
+                pdf.set_font('Helvetica', '', 8)
+                pdf.cell(ancho_img, 5, txt='Error imagen', border=0)
+            x += ancho_img + 4
+        pdf.set_y(y + alto_img + 10)
 
-        def insertar_galeria(label, lista, x_inicial, y_actual):
-            if not lista:
-                return y_actual
-            pdf.set_font('Helvetica', 'B', 10)
-            pdf.set_text_color(0,0,0)
-            pdf.set_xy(x_inicial, y_actual)
-            pdf.cell(0, 7, txt=label, ln=True)
-            y_actual += 7
-            ancho_img = 80
-            alto_img = 60
-            x = x_inicial
-            y = y_actual
-            for idx, foto_base64 in enumerate(lista[:4]):
-                if idx % 2 == 0 and idx != 0:
-                    x = x_inicial
-                    y += alto_img + 4
-                try:
-                    img_bytes = base64.b64decode(foto_base64)
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as img_file:
-                        img_file.write(img_bytes)
-                        img_path = img_file.name
-                    pdf.image(img_path, x=x, y=y, w=ancho_img, h=alto_img)
-                    os.unlink(img_path)
-                except Exception as e:
-                    pdf.set_xy(x, y+10)
-                    pdf.set_font('Helvetica', '', 8)
-                    pdf.cell(ancho_img, 5, txt='Error imagen', border=0)
-                x += ancho_img + 4
-            return y + alto_img + 6
-
-        y_pos = pdf.get_y()
-        y_pos = insertar_galeria('ANTES', fotos_antes, 10, y_pos)
-        if fotos_despues:
-            y_pos += 4
-            y_pos = insertar_galeria('DESPUES', fotos_despues, 10, y_pos)
-        pdf.set_y(y_pos + 4)
-
-    # ---------- COTIZACIÓN ----------
+    # COTIZACIÓN
     cotizacion_texto = ''
     if solicitud.descripcion:
         match = re.search(r'Cotizaci[oó]n:\s*(.*)', solicitud.descripcion, re.IGNORECASE)
@@ -392,7 +360,7 @@ def generar_pdf(solicitud_id: int):
         pdf.set_font('Helvetica', '', 10)
         pdf.multi_cell(0, 6, txt=cotizacion_texto)
 
-    # ---------- FIRMA DIGITAL ----------
+    # FIRMA
     pdf.ln(8)
     pdf.set_font('Helvetica', 'B', 12)
     pdf.set_text_color(*azul)
@@ -423,7 +391,7 @@ def generar_pdf(solicitud_id: int):
     pdf.set_font('Helvetica', '', 10)
     pdf.cell(0, 6, txt=f'Fecha de cierre: {solicitud.fecha_fin.strftime("%d/%m/%Y %H:%M") if solicitud.fecha_fin else ""}', ln=True)
 
-    # ---------- FOOTER CON QR ----------
+    # QR
     pdf.ln(10)
     try:
         qr_url = f'https://parkops-backend.onrender.com/reporte/{solicitud_id}/pdf'
@@ -436,8 +404,8 @@ def generar_pdf(solicitud_id: int):
         pdf.set_font('Helvetica', '', 7)
         pdf.set_xy(150, pdf.get_y()+26)
         pdf.cell(25, 4, txt='Validar servicio', align='C')
-    except Exception as e:
-        print(f"No se pudo generar QR: {e}")
+    except:
+        pass
 
     pdf.set_y(pdf.get_y() + 35)
     pdf.set_font('Helvetica', 'I', 8)
@@ -452,26 +420,22 @@ def generar_pdf(solicitud_id: int):
 
 def enviar_correo_pdf(to_email: str, pdf_path: str, solicitud_id: int):
     try:
-        email_user = os.getenv("EMAIL_USER", "h.castanoaccesspark@gmail.co")
-        email_pass = os.getenv("EMAIL_PASS", "")
+        email_user = os.getenv("EMAIL_USER")
+        email_pass = os.getenv("EMAIL_PASS")
         if not email_user or not email_pass:
             print("Credenciales de correo no configuradas")
             return
-
         msg = MIMEMultipart()
         msg['From'] = email_user
         msg['To'] = to_email
         msg['Subject'] = f"Reporte de servicio #{solicitud_id}"
-        body = f"Adjuntamos el reporte de servicio correspondiente a su solicitud."
-        msg.attach(MIMEText(body, 'plain'))
-
+        msg.attach(MIMEText("Adjuntamos el reporte de servicio.", 'plain'))
         with open(pdf_path, 'rb') as attachment:
             part = MIMEBase('application', 'pdf')
             part.set_payload(attachment.read())
             encoders.encode_base64(part)
             part.add_header('Content-Disposition', f'attachment; filename=reporte_{solicitud_id}.pdf')
             msg.attach(part)
-
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(email_user, email_pass)
@@ -528,6 +492,31 @@ def get_usuario(user_id: int, user=Depends(get_current_user)):
         "parqueadero_id": usuario.parqueadero_id
     }
 
+@app.put("/usuarios/{user_id}")
+def actualizar_usuario(user_id: int, request: dict, user=Depends(get_current_user)):
+    if user.id != user_id and user.rol not in ['lider', 'coordinador']:
+        raise HTTPException(403, "No autorizado")
+    db = SessionLocal()
+    usuario = db.query(User).filter(User.id == user_id).first()
+    if not usuario:
+        db.close()
+        raise HTTPException(404, "Usuario no encontrado")
+    if 'nombre' in request:
+        usuario.nombre = request['nombre']
+    if 'eps' in request:
+        usuario.eps = request['eps']
+    if 'arl' in request:
+        usuario.arl = request['arl']
+    if 'rh' in request:
+        usuario.rh = request['rh']
+    if 'contacto_emergencia' in request:
+        usuario.contacto_emergencia = request['contacto_emergencia']
+    if 'foto_perfil' in request:
+        usuario.foto_perfil = request['foto_perfil']
+    db.commit()
+    db.close()
+    return {"mensaje": "Usuario actualizado"}
+
 @app.post("/solicitudes/crear")
 def crear_solicitud(
     descripcion: str = Form(...), lat: float = Form(...), lon: float = Form(...),
@@ -538,6 +527,18 @@ def crear_solicitud(
             raise HTTPException(403, "No autorizado")
         db = SessionLocal()
         origen = 'cliente' if user.rol == 'cliente' else 'tecnico'
+        parqueadero_id = None
+        if origen == 'cliente' and user.parqueadero_id:
+            parqueadero_id = user.parqueadero_id
+        elif maquina_id and maquina_id.strip() and maquina_id != 'None':
+            try:
+                maq_id = int(maquina_id)
+                maquina = db.query(Maquina).filter(Maquina.id == maq_id).first()
+                if maquina:
+                    parqueadero_id = maquina.parqueadero_id
+            except:
+                pass
+
         tecnicos = db.query(User).filter(User.rol == 'tecnico', User.disponible == True).all()
         if tecnicos and origen == 'cliente':
             tecnico = min(tecnicos, key=lambda t: distancia(lat, lon, t.lat or 0, t.lon or 0))
@@ -555,7 +556,7 @@ def crear_solicitud(
             cliente_id=user.id, descripcion=descripcion, lat=lat, lon=lon, tipo=tipo,
             estado=estado, tecnico_id=tecnico.id if tecnico else None,
             maquina_id=maq_id, fecha_asignacion=fecha_asignacion,
-            fotos=fotos, videos=videos, origen=origen)
+            fotos=fotos, videos=videos, origen=origen, parqueadero_id=parqueadero_id)
         db.add(solicitud)
         db.commit()
         solicitud_id = solicitud.id
@@ -585,19 +586,28 @@ def listar_solicitudes(user=Depends(get_current_user)):
         result = []
         for s in solicitudes:
             cliente_nombre = None
-            parqueadero_id = None
+            parqueadero_nombre = None
+            parqueadero_id = s.parqueadero_id
             if s.cliente_id:
                 db2 = SessionLocal()
                 cliente = db2.query(User).filter(User.id == s.cliente_id).first()
                 if cliente:
                     cliente_nombre = cliente.nombre
-                    parqueadero_id = cliente.parqueadero_id
+                    if parqueadero_id is None and cliente.parqueadero_id:
+                        parqueadero_id = cliente.parqueadero_id
+                db2.close()
+            if parqueadero_id:
+                db2 = SessionLocal()
+                parq = db2.query(Parqueadero).filter(Parqueadero.id == parqueadero_id).first()
+                if parq:
+                    parqueadero_nombre = parq.nombre
                 db2.close()
             result.append({
                 "id": s.id, "descripcion": s.descripcion, "estado": s.estado, "tipo": s.tipo,
                 "cliente_nombre": cliente_nombre, "tecnico_id": s.tecnico_id,
                 "origen": s.origen,
-                "parqueadero_id": parqueadero_id
+                "parqueadero_id": parqueadero_id,
+                "parqueadero_nombre": parqueadero_nombre
             })
         db.close()
         return result
@@ -667,55 +677,77 @@ def iniciar_servicio(solicitud_id: int, lat: float = Form(...), lon: float = For
         raise HTTPException(500, f"Error al iniciar servicio: {str(e)}")
 
 @app.post("/tecnico/cerrar_solicitud/{solicitud_id}")
-def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = Form(...), user=Depends(get_current_user)):
+def cerrar_solicitud(solicitud_id: int, items: str = Form(...), firma: str = Form(...), fotos: str = Form(""), user=Depends(get_current_user)):
     try:
-        if user.rol != 'tecnico': raise HTTPException(403, "No autorizado")
+        if user.rol != 'tecnico':
+            raise HTTPException(403, "No autorizado")
         db = SessionLocal()
         solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
         if not solicitud or solicitud.estado in ['finalizada', 'cancelada']:
-            db.close(); raise HTTPException(400, "La solicitud ya fue cerrada o cancelada")
-
-        # Permitir cerrar si el técnico es el asignado, o si es el creador de un reporte propio (origen='tecnico')
+            db.close()
+            raise HTTPException(400, "La solicitud ya fue cerrada o cancelada")
         if solicitud.tecnico_id != user.id and not (solicitud.cliente_id == user.id and solicitud.origen == 'tecnico'):
-            db.close(); raise HTTPException(403, "No tienes permiso para cerrar esta solicitud")
-
-        # Si no tiene técnico asignado (reporte propio), se asigna al técnico que lo está cerrando
+            db.close()
+            raise HTTPException(403, "No tienes permiso para cerrar esta solicitud")
         if solicitud.tecnico_id is None:
             solicitud.tecnico_id = user.id
-
+        if solicitud.parqueadero_id is None:
+            if solicitud.maquina_id:
+                maquina = db.query(Maquina).filter(Maquina.id == solicitud.maquina_id).first()
+                if maquina:
+                    solicitud.parqueadero_id = maquina.parqueadero_id
+            else:
+                cliente = db.query(User).filter(User.id == solicitud.cliente_id).first()
+                if cliente and cliente.parqueadero_id:
+                    solicitud.parqueadero_id = cliente.parqueadero_id
+        if items == "Reporte completado" and solicitud.items and solicitud.items != "Reporte completado":
+            pass
+        else:
+            solicitud.items = items
         solicitud.estado = 'finalizada'
-        solicitud.items = items
         solicitud.firma = firma
+        if fotos:
+            solicitud.fotos = fotos
         solicitud.fecha_fin = datetime.now(timezone.utc)
         user.estado = 'libre'
-
         try:
             pdf_path = generar_pdf(solicitud_id)
             solicitud.pdf_path = pdf_path
         except Exception as e:
             print(f"Error generando PDF: {e}")
-            # Aún así continuamos, guardamos el cierre sin PDF
             solicitud.pdf_path = None
-
-        # Guardar en reportes (siempre)
         db.execute("CREATE TABLE IF NOT EXISTS reportes (id SERIAL PRIMARY KEY, solicitud_id INTEGER REFERENCES solicitudes(id) ON DELETE CASCADE, pdf_url TEXT, fecha_creacion TIMESTAMPTZ DEFAULT now())")
         if solicitud.pdf_path:
-            db.execute(
-                "INSERT INTO reportes (solicitud_id, pdf_url) VALUES (:sid, :url)",
-                {"sid": solicitud_id, "url": solicitud.pdf_path}
-            )
-
-        # Enviar correo (si hay PDF)
+            db.execute("INSERT INTO reportes (solicitud_id, pdf_url) VALUES (:sid, :url)", {"sid": solicitud_id, "url": solicitud.pdf_path})
         if solicitud.pdf_path:
             cliente_db = db.query(User).filter(User.id == solicitud.cliente_id).first()
             if cliente_db:
                 enviar_correo_pdf(cliente_db.email or "h.castanoaccesspark@gmail.co", solicitud.pdf_path, solicitud_id)
-
-        db.commit(); db.close()
+        db.commit()
+        db.close()
         return {"mensaje": "Servicio finalizado, PDF generado"}
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(500, f"Error al cerrar solicitud: {str(e)}")
+
+@app.get("/solicitudes/{solicitud_id}")
+def obtener_solicitud(solicitud_id: int, user=Depends(get_current_user)):
+    db = SessionLocal()
+    solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
+    db.close()
+    if not solicitud:
+        raise HTTPException(404, "Solicitud no encontrada")
+    if user.rol not in ['lider', 'coordinador'] and user.id != solicitud.cliente_id and user.id != solicitud.tecnico_id:
+        raise HTTPException(403, "No autorizado")
+    return {
+        "id": solicitud.id,
+        "descripcion": solicitud.descripcion,
+        "estado": solicitud.estado,
+        "fotos": solicitud.fotos,
+        "items": solicitud.items,
+        "firma": solicitud.firma,
+        "fecha_creacion": solicitud.fecha_creacion.isoformat() if solicitud.fecha_creacion else None
+    }
 
 @app.get("/reporte/{solicitud_id}/pdf")
 def descargar_pdf(solicitud_id: int, user=Depends(get_current_user)):
@@ -744,45 +776,65 @@ def listar_tecnicos(user=Depends(get_current_user)):
     db = SessionLocal()
     tecnicos = db.query(User).filter(User.rol == 'tecnico').all()
     db.close()
-    return [{"id": t.id, "nombre": t.nombre, "disponible": t.disponible, "estado": t.estado} for t in tecnicos]
+    return [{"id": t.id, "nombre": t.nombre, "disponible": t.disponible, "estado": t.estado, "lat": t.lat, "lon": t.lon} for t in tecnicos]
 
 @app.put("/solicitudes/{solicitud_id}/asignar")
 def asignar_tecnico(solicitud_id: int, tecnico_id: int = Form(...), user=Depends(get_current_user)):
     if user.rol not in ['coordinador', 'lider']:
         raise HTTPException(403, "No autorizado")
     db = SessionLocal()
-    solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
-    if not solicitud:
-        db.close(); raise HTTPException(404, "Solicitud no encontrada")
-    if solicitud.estado not in ['pendiente', 'asignada']:
-        db.close(); raise HTTPException(400, "La solicitud ya fue aceptada o finalizada")
-    tecnico = db.query(User).filter(User.id == tecnico_id, User.rol == 'tecnico').first()
-    if not tecnico:
-        db.close(); raise HTTPException(404, "Técnico no encontrado")
-    solicitud.tecnico_id = tecnico_id
-    solicitud.estado = 'asignada'
-    solicitud.fecha_asignacion = datetime.now(timezone.utc)
-    db.commit(); db.close()
-    return {"mensaje": f"Solicitud asignada a {tecnico.nombre}"}
+    try:
+        solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
+        if not solicitud:
+            raise HTTPException(404, "Solicitud no encontrada")
+        if solicitud.estado not in ['pendiente', 'asignada']:
+            raise HTTPException(400, "La solicitud ya fue aceptada o finalizada")
+        tecnico = db.query(User).filter(User.id == tecnico_id, User.rol == 'tecnico').first()
+        if not tecnico:
+            raise HTTPException(404, "Técnico no encontrado")
+        tecnico_nombre = tecnico.nombre
+        solicitud.tecnico_id = tecnico_id
+        solicitud.estado = 'asignada'
+        solicitud.fecha_asignacion = datetime.now(timezone.utc)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error interno: {str(e)}")
+    finally:
+        db.close()
+    return {"mensaje": f"Solicitud asignada a {tecnico_nombre}"}
 
 @app.put("/solicitudes/{solicitud_id}/reasignar")
 def reasignar_tecnico(solicitud_id: int, nuevo_tecnico_id: int = Form(...), user=Depends(get_current_user)):
     if user.rol not in ['coordinador', 'lider']:
         raise HTTPException(403, "No autorizado")
     db = SessionLocal()
-    solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
-    if not solicitud:
-        db.close(); raise HTTPException(404, "Solicitud no encontrada")
-    if solicitud.estado in ['finalizada', 'cancelada']:
-        db.close(); raise HTTPException(400, "No se puede reasignar una solicitud finalizada")
-    nuevo_tec = db.query(User).filter(User.id == nuevo_tecnico_id, User.rol == 'tecnico').first()
-    if not nuevo_tec:
-        db.close(); raise HTTPException(404, "Técnico no encontrado")
-    solicitud.tecnico_id = nuevo_tecnico_id
-    solicitud.estado = 'asignada'
-    solicitud.fecha_asignacion = datetime.now(timezone.utc)
-    db.commit(); db.close()
-    return {"mensaje": f"Solicitud reasignada a {nuevo_tec.nombre}"}
+    try:
+        solicitud = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
+        if not solicitud:
+            raise HTTPException(404, "Solicitud no encontrada")
+        if solicitud.estado in ['finalizada', 'cancelada']:
+            raise HTTPException(400, "No se puede reasignar una solicitud finalizada")
+        nuevo_tec = db.query(User).filter(User.id == nuevo_tecnico_id, User.rol == 'tecnico').first()
+        if not nuevo_tec:
+            raise HTTPException(404, "Técnico no encontrado")
+        tecnico_nombre = nuevo_tec.nombre
+        solicitud.tecnico_id = nuevo_tecnico_id
+        solicitud.estado = 'asignada'
+        solicitud.fecha_asignacion = datetime.now(timezone.utc)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error interno: {str(e)}")
+    finally:
+        db.close()
+    return {"mensaje": f"Solicitud reasignada a {tecnico_nombre}"}
 
 @app.post("/tecnico/devolver_a_pendiente/{solicitud_id}")
 def devolver_a_pendiente(solicitud_id: int, motivo: str = Form(...), user=Depends(get_current_user)):
@@ -886,6 +938,61 @@ def mis_reportes_tecnico(parqueadero_id: int, user=Depends(get_current_user)):
     ).order_by(Solicitud.fecha_creacion.desc()).all()
     db.close()
     return [{"id": r.id, "descripcion": r.descripcion, "estado": r.estado, "tipo": r.tipo} for r in reportes]
+
+@app.get("/tecnico/mis_reportes_completados")
+def mis_reportes_completados(user=Depends(get_current_user)):
+    if user.rol != 'tecnico':
+        raise HTTPException(403, "No autorizado")
+    db = SessionLocal()
+    reportes = db.query(Solicitud).filter(
+        (Solicitud.tecnico_id == user.id) | ((Solicitud.cliente_id == user.id) & (Solicitud.origen == 'tecnico')),
+        Solicitud.estado == 'finalizada'
+    ).order_by(Solicitud.fecha_fin.desc()).limit(10).all()
+    resultado = []
+    for r in reportes:
+        parqueadero_nombre = None
+        if r.parqueadero_id:
+            parq = db.query(Parqueadero).filter(Parqueadero.id == r.parqueadero_id).first()
+            if parq:
+                parqueadero_nombre = parq.nombre
+        resultado.append({
+            "id": r.id,
+            "descripcion": r.descripcion,
+            "tipo": r.tipo,
+            "fecha_fin": r.fecha_fin.isoformat() if r.fecha_fin else None,
+            "parqueadero_nombre": parqueadero_nombre,
+            "pdf_url": f"/reporte/{r.id}/pdf"
+        })
+    db.close()
+    return resultado
+
+@app.get("/coordinador/todos_reportes")
+def todos_reportes(user=Depends(get_current_user)):
+    if user.rol not in ['coordinador', 'lider']:
+        raise HTTPException(403, "No autorizado")
+    db = SessionLocal()
+    reportes = db.query(Solicitud).filter(Solicitud.estado == 'finalizada').order_by(Solicitud.fecha_fin.desc()).all()
+    resultado = []
+    for r in reportes:
+        tecnico = db.query(User).filter(User.id == r.tecnico_id).first()
+        cliente = db.query(User).filter(User.id == r.cliente_id).first()
+        parqueadero_nombre = None
+        if r.parqueadero_id:
+            parq = db.query(Parqueadero).filter(Parqueadero.id == r.parqueadero_id).first()
+            if parq:
+                parqueadero_nombre = parq.nombre
+        resultado.append({
+            "id": r.id,
+            "descripcion": r.descripcion,
+            "tipo": r.tipo,
+            "fecha_fin": r.fecha_fin.isoformat() if r.fecha_fin else None,
+            "tecnico_nombre": tecnico.nombre if tecnico else "No asignado",
+            "cliente_nombre": cliente.nombre if cliente else "Desconocido",
+            "parqueadero_nombre": parqueadero_nombre,
+            "pdf_url": f"/reporte/{r.id}/pdf"
+        })
+    db.close()
+    return resultado
 
 @app.post("/admin/insertar_datos_prueba")
 def insertar_datos_prueba(user=Depends(get_current_user)):
