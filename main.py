@@ -202,7 +202,7 @@ def generar_pdf(solicitud_id: int):
     pdf.set_fill_color(*azul)
     pdf.rect(0, 0, 210, 45, 'F')
 
-    # Logos locales (deben estar en carpeta static)
+    # Logos locales
     try:
         logo_parkops_path = os.path.join(os.path.dirname(__file__), "static", "parkops_logo.png")
         if os.path.exists(logo_parkops_path):
@@ -779,8 +779,20 @@ def descargar_pdf(solicitud_id: int, user=Depends(get_current_user)):
 def listar_tecnicos(user=Depends(get_current_user)):
     db = SessionLocal()
     tecnicos = db.query(User).filter(User.rol == 'tecnico').all()
+    resultado = []
+    for t in tecnicos:
+        jornada_activa = db.query(Jornada).filter(Jornada.tecnico_id == t.id, Jornada.fin == None).first()
+        disponible = jornada_activa is not None
+        resultado.append({
+            "id": t.id,
+            "nombre": t.nombre,
+            "disponible": disponible,
+            "estado": t.estado,
+            "lat": t.lat,
+            "lon": t.lon
+        })
     db.close()
-    return [{"id": t.id, "nombre": t.nombre, "disponible": t.disponible, "estado": t.estado, "lat": t.lat, "lon": t.lon} for t in tecnicos]
+    return resultado
 
 @app.put("/solicitudes/{solicitud_id}/asignar")
 def asignar_tecnico(solicitud_id: int, tecnico_id: int = Form(...), user=Depends(get_current_user)):
@@ -908,7 +920,6 @@ def jornada_activa(user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(500, f"Error: {str(e)}")
 
-# 🔧 CORRECCIÓN: Permitir que cliente también vea reportes del parqueadero
 @app.get("/parqueaderos/{parqueadero_id}/reportes")
 def reportes_por_parqueadero(parqueadero_id: int, user=Depends(get_current_user)):
     if user.rol not in ['tecnico', 'cliente']:
@@ -981,8 +992,6 @@ def todos_reportes(user=Depends(get_current_user)):
     for r in reportes:
         tecnico = db.query(User).filter(User.id == r.tecnico_id).first()
         cliente = db.query(User).filter(User.id == r.cliente_id).first()
-        
-        # Intentar obtener el parqueadero_id si es nulo
         parqueadero_id = r.parqueadero_id
         if parqueadero_id is None:
             if r.maquina_id:
@@ -991,13 +1000,11 @@ def todos_reportes(user=Depends(get_current_user)):
                     parqueadero_id = maquina.parqueadero_id
             if parqueadero_id is None and cliente and cliente.parqueadero_id:
                 parqueadero_id = cliente.parqueadero_id
-        
         parqueadero_nombre = None
         if parqueadero_id:
             parq = db.query(Parqueadero).filter(Parqueadero.id == parqueadero_id).first()
             if parq:
                 parqueadero_nombre = parq.nombre
-        
         resultado.append({
             "id": r.id,
             "descripcion": r.descripcion,
@@ -1008,12 +1015,6 @@ def todos_reportes(user=Depends(get_current_user)):
             "parqueadero_nombre": parqueadero_nombre,
             "pdf_url": f"/reporte/{r.id}/pdf"
         })
-    
-    # Depuración: imprime en consola cuántos reportes tienen parqueadero_nombre
-    print(f"Total reportes finalizados: {len(resultado)}")
-    for r in resultado:
-        print(f"ID {r['id']} - Parqueadero: {r['parqueadero_nombre']}")
-    
     db.close()
     return resultado
 
