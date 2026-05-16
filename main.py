@@ -981,11 +981,23 @@ def todos_reportes(user=Depends(get_current_user)):
     for r in reportes:
         tecnico = db.query(User).filter(User.id == r.tecnico_id).first()
         cliente = db.query(User).filter(User.id == r.cliente_id).first()
+        
+        # Intentar obtener el parqueadero_id si es nulo
+        parqueadero_id = r.parqueadero_id
+        if parqueadero_id is None:
+            if r.maquina_id:
+                maquina = db.query(Maquina).filter(Maquina.id == r.maquina_id).first()
+                if maquina:
+                    parqueadero_id = maquina.parqueadero_id
+            if parqueadero_id is None and cliente and cliente.parqueadero_id:
+                parqueadero_id = cliente.parqueadero_id
+        
         parqueadero_nombre = None
-        if r.parqueadero_id:
-            parq = db.query(Parqueadero).filter(Parqueadero.id == r.parqueadero_id).first()
+        if parqueadero_id:
+            parq = db.query(Parqueadero).filter(Parqueadero.id == parqueadero_id).first()
             if parq:
                 parqueadero_nombre = parq.nombre
+        
         resultado.append({
             "id": r.id,
             "descripcion": r.descripcion,
@@ -996,6 +1008,12 @@ def todos_reportes(user=Depends(get_current_user)):
             "parqueadero_nombre": parqueadero_nombre,
             "pdf_url": f"/reporte/{r.id}/pdf"
         })
+    
+    # Depuración: imprime en consola cuántos reportes tienen parqueadero_nombre
+    print(f"Total reportes finalizados: {len(resultado)}")
+    for r in resultado:
+        print(f"ID {r['id']} - Parqueadero: {r['parqueadero_nombre']}")
+    
     db.close()
     return resultado
 
