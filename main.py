@@ -202,19 +202,23 @@ def generar_pdf(solicitud_id: int):
     pdf.set_fill_color(*azul)
     pdf.rect(0, 0, 210, 45, 'F')
 
-    # Logos locales
+    # Logos locales (deben estar en carpeta static)
     try:
         logo_parkops_path = os.path.join(os.path.dirname(__file__), "static", "parkops_logo.png")
         if os.path.exists(logo_parkops_path):
             pdf.image(logo_parkops_path, x=10, y=5, w=30)
-    except:
-        pass
+        else:
+            print("Logo ParkOPS no encontrado en static/")
+    except Exception as e:
+        print(f"Error con logo ParkOPS: {e}")
     try:
         logo_accespark_path = os.path.join(os.path.dirname(__file__), "static", "accespark_logo.png")
         if os.path.exists(logo_accespark_path):
             pdf.image(logo_accespark_path, x=170, y=5, w=30)
-    except:
-        pass
+        else:
+            print("Logo Accespark no encontrado en static/")
+    except Exception as e:
+        print(f"Error con logo Accespark: {e}")
 
     pdf.set_y(10)
     pdf.set_x(50)
@@ -904,9 +908,10 @@ def jornada_activa(user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(500, f"Error: {str(e)}")
 
+# 🔧 CORRECCIÓN: Permitir que cliente también vea reportes del parqueadero
 @app.get("/parqueaderos/{parqueadero_id}/reportes")
 def reportes_por_parqueadero(parqueadero_id: int, user=Depends(get_current_user)):
-    if user.rol not in ['tecnico']:
+    if user.rol not in ['tecnico', 'cliente']:
         raise HTTPException(403, "No autorizado")
     db = SessionLocal()
     maquinas = db.query(Maquina).filter(Maquina.parqueadero_id == parqueadero_id).all()
