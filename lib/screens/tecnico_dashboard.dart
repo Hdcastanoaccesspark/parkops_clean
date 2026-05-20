@@ -5,9 +5,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../config.dart';
 import '../theme/app_theme.dart';
 import '../widgets/parkops_components.dart';
+import 'correctivo_presencial_screen.dart';
+import 'correctivo_remoto_screen.dart';
 import 'menu_parqueadero.dart';
 import 'tecnico_reportes_screen.dart';
 
@@ -21,6 +24,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   bool _jornadaActiva = false,
       _jornadaPausada = false,
       _cargandoJornada = false;
+  bool _aceptando = false;
   List<dynamic> _parqueaderos = [], _visitasAsignadas = [];
   bool _cargandoParqueaderos = true, _cargandoVisitas = true;
   String? _errorParqueaderos, _errorVisitas;
@@ -35,11 +39,59 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   @override
   void initState() {
     super.initState();
+    _solicitarPermisos();
     _loadUserData();
     _cargarParqueaderos();
     _cargarVisitasAsignadas();
     _consultarEstadoJornada();
     _checkGPS();
+  }
+
+  Future<void> _solicitarPermisos() async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.camera,
+      Permission.storage,
+      Permission.location,
+      Permission.locationWhenInUse,
+    ].request();
+
+    if (statuses[Permission.location]!.isDenied ||
+        statuses[Permission.locationWhenInUse]!.isDenied) {
+      await [Permission.location, Permission.locationWhenInUse].request();
+    }
+    if (statuses[Permission.camera]!.isDenied) {
+      await Permission.camera.request();
+    }
+    if (statuses[Permission.storage]!.isDenied) {
+      await Permission.storage.request();
+    }
+
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled && mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Ubicación desactivada'),
+          content: const Text(
+            'Para usar la app, necesita activar la ubicación. ¿Desea ir a ajustes?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Geolocator.openLocationSettings();
+                Navigator.pop(ctx);
+              },
+              child: const Text('Abrir ajustes'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   Future<void> _loadUserData() async {
@@ -256,7 +308,17 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       _msg('Jornada pausada. Reanuda primero.');
       return;
     }
-    if (!await _confirmar('Aceptar solicitud', '¿Confirma?')) return;
+    if (_aceptando) {
+      _msg('Ya estás aceptando una solicitud');
+      return;
+    }
+
+    setState(() => _aceptando = true);
+
+    if (!await _confirmar('Aceptar solicitud', '¿Confirma?')) {
+      setState(() => _aceptando = false);
+      return;
+    }
 
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
@@ -276,31 +338,119 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         );
         if (parqueadero != null) parqueaderoNombre = parqueadero['nombre'];
       }
-      await _cargarVisitasAsignadas();
-      _msg('Solicitud aceptada', err: false);
-      if (parqueaderoId != null && parqueaderoNombre != null) {
-        final parqueadero = {
-          'id': parqueaderoId,
-          'nombre': parqueaderoNombre,
-          'direccion': solicitud['direccion'] ?? '',
-        };
-        final result = await Navigator.push(
+      if (parqueaderoId == null || parqueaderoNombre == null) {
+        _msg('No se pudo determinar el parqueadero asociado', err: true);
+        setState(() => _aceptando = false);
+        return;
+      }
+      final parqueadero = {
+        'id': parqueaderoId,
+        'nombre': parqueaderoNombre,
+        'direccion': solicitud['direccion'] ?? '',
+      };
+
+      final tipoCorrectivo = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Mantenimiento Correctivo'),
+          content: const Text('¿Qué tipo de correctivo va a realizar?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'presencial'),
+              child: const Text('Presencial'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'remoto'),
+              child: const Text('Remoto'),
+            ),
+          ],
+        ),
+      );
+      if (tipoCorrectivo == null) {
+        setState(() => _aceptando = false);
+        return;
+      }
+      if (tipoCorrectivo == 'remoto') {
+        await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => MenuParqueaderoScreen(parqueadero: parqueadero),
+            builder: (_) => CorrectivoRemotoScreen(parqueadero: parqueadero),
           ),
         );
-        // Si el menú retorna true, refrescamos todo
-        if (result == true) {
-          await _cargarVisitasAsignadas();
-          await _cargarParqueaderos();
-        }
       } else {
-        _msg('No se pudo determinar el parqueadero asociado', err: true);
+        final maquinaId = solicitud['maquina_id'];
+        Map<String, dynamic>? maquinaSeleccionada;
+        if (maquinaId != null) {
+          try {
+            final maqRes = await http.get(
+              Uri.parse('$API_BASE_URL/maquinas/$maquinaId'),
+              headers: {'Authorization': 'Bearer $token'},
+            );
+            if (maqRes.statusCode == 200) {
+              maquinaSeleccionada =
+                  jsonDecode(maqRes.body) as Map<String, dynamic>;
+            }
+          } catch (_) {}
+        }
+        if (maquinaSeleccionada == null) {
+          final maquinasRes = await http.get(
+            Uri.parse('$API_BASE_URL/parqueaderos/$parqueaderoId/maquinas'),
+            headers: {'Authorization': 'Bearer $token'},
+          );
+          if (maquinasRes.statusCode == 200) {
+            final maquinas = jsonDecode(maquinasRes.body) as List;
+            if (maquinas.isNotEmpty) {
+              maquinaSeleccionada = await showDialog<Map<String, dynamic>>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Selecciona la máquina'),
+                  content: SizedBox(
+                    width: double.maxFinite,
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: maquinas.length,
+                      itemBuilder: (_, i) => ListTile(
+                        title: Text(maquinas[i]['nombre']),
+                        onTap: () => Navigator.pop(
+                          ctx,
+                          maquinas[i] as Map<String, dynamic>,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            } else {
+              _msg('No hay máquinas disponibles en este parqueadero');
+              setState(() => _aceptando = false);
+              return;
+            }
+          } else {
+            _msg('Error al cargar máquinas');
+            setState(() => _aceptando = false);
+            return;
+          }
+        }
+        if (maquinaSeleccionada != null) {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CorrectivoPresencialScreen(
+                parqueadero: parqueadero,
+                maquina: maquinaSeleccionada!,
+              ),
+            ),
+          );
+        } else {
+          _msg('Debe seleccionar una máquina');
+        }
       }
+      await _cargarVisitasAsignadas();
+      await _cargarParqueaderos();
     } else {
       _msg('Error al aceptar: ${res.statusCode}');
     }
+    setState(() => _aceptando = false);
   }
 
   Future<void> _devolverAPendiente(int id) async {
@@ -379,7 +529,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     }
   }
 
-  // Acciones rápidas (Waze, llamar, abrir servicio actual)
   Future<void> _abrirWaze() async {
     final url = 'https://waze.com/ul?ll=4.598,-74.071&navigate=yes';
     if (await canLaunchUrl(Uri.parse(url)))
@@ -414,7 +563,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     }
   }
 
-  // Evidencias rápidas
   Future<void> _tomarFotoEvidencia() async {
     final picker = ImagePicker();
     final foto = await picker.pickImage(source: ImageSource.camera);
@@ -806,8 +954,11 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                                           if (puedeAceptar)
                                             ParkopsPrimaryButton(
                                               label: 'Aceptar',
-                                              onPressed: () =>
-                                                  _aceptarSolicitud(s['id']),
+                                              onPressed: _aceptando
+                                                  ? null
+                                                  : () => _aceptarSolicitud(
+                                                      s['id'],
+                                                    ),
                                               fullWidth: false,
                                             ),
                                           if (puedeDevolver)
